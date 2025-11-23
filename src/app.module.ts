@@ -4,6 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
+import { DatabaseModule } from './database/database.module';
 
 /**
  * Validates required environment variables.
@@ -11,7 +12,12 @@ import { AuthModule } from './auth/auth.module';
  * Returns the validated config.
  */
 function validateEnvironment(config: Record<string, any>): Record<string, any> {
-  const requiredVars = ['JWKS_URI', 'JWT_ISSUER', 'JWT_AUDIENCE'];
+  const requiredVars = [
+    'JWKS_URI',
+    'JWT_ISSUER',
+    'JWT_AUDIENCE',
+    'DATABASE_URL',
+  ];
 
   const missingVars = requiredVars.filter((varName) => !config[varName]);
 
@@ -42,6 +48,7 @@ function validateEnvironment(config: Record<string, any>): Record<string, any> {
       envFilePath: '.env', // Load from .env file
       validate: validateEnvironment, // Validate required environment variables
     }),
+    DatabaseModule, // Global database module for Prisma
     UsersModule,
     AuthModule,
   ],

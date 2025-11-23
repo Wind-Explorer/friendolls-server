@@ -15,9 +15,6 @@ import { UsersModule } from '../users/users.module';
  * - Integration with UsersModule for user synchronization
  *
  * The module requires the following environment variables:
- * - KEYCLOAK_AUTH_SERVER_URL: Base URL of Keycloak server
- * - KEYCLOAK_REALM: Keycloak realm name
- * - KEYCLOAK_CLIENT_ID: Client ID registered in Keycloak
  * - JWT_ISSUER: Expected JWT issuer
  * - JWT_AUDIENCE: Expected JWT audience
  * - JWKS_URI: URI for fetching Keycloak's public keys

@@ -28,12 +28,12 @@ export class AuthService {
       authenticatedUser;
 
     // Try to find existing user by Keycloak subject
-    let user = this.usersService.findByKeycloakSub(keycloakSub);
+    let user = await this.usersService.findByKeycloakSub(keycloakSub);
 
     if (user) {
       // User exists - update last login and sync profile data
       this.logger.debug(`Syncing existing user: ${keycloakSub}`);
-      user = this.usersService.updateFromToken(keycloakSub, {
+      user = await this.usersService.updateFromToken(keycloakSub, {
         email,
         name,
         username,
@@ -44,7 +44,7 @@ export class AuthService {
     } else {
       // New user - create from token data
       this.logger.log(`Creating new user from token: ${keycloakSub}`);
-      user = this.usersService.createFromToken({
+      user = await this.usersService.createFromToken({
         keycloakSub,
         email: email || '',
         name: name || username || 'Unknown User',
@@ -54,7 +54,7 @@ export class AuthService {
       });
     }
 
-    return Promise.resolve(user);
+    return user;
   }
 
   /**

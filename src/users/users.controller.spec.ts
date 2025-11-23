@@ -42,6 +42,7 @@ describe('UsersController', () => {
     email: 'test@example.com',
     name: 'Test User',
     username: 'testuser',
+    picture: null,
     roles: ['user'],
     createdAt: new Date('2024-01-01'),
     updatedAt: new Date('2024-01-01'),
@@ -74,20 +75,20 @@ describe('UsersController', () => {
   });
 
   describe('getCurrentUser', () => {
-    it('should return current user profile and sync from token', async () => {
+    it('should return the current user and sync from token', async () => {
       mockSyncUserFromToken.mockResolvedValue(mockUser);
 
       const result = await controller.getCurrentUser(mockAuthUser);
 
-      expect(result).toEqual(mockUser);
+      expect(result).toBe(mockUser);
       expect(mockSyncUserFromToken).toHaveBeenCalledWith(mockAuthUser);
     });
   });
 
   describe('updateCurrentUser', () => {
-    it('should update current user profile', async () => {
+    it('should update the current user profile', async () => {
       const updateDto: UpdateUserDto = { name: 'Updated Name' };
-      const updatedUser: User = { ...mockUser, name: 'Updated Name' };
+      const updatedUser = { ...mockUser, name: 'Updated Name' };
 
       mockSyncUserFromToken.mockResolvedValue(mockUser);
       mockUpdate.mockResolvedValue(updatedUser);
@@ -97,7 +98,7 @@ describe('UsersController', () => {
         updateDto,
       );
 
-      expect(result).toEqual(updatedUser);
+      expect(result).toBe(updatedUser);
       expect(mockSyncUserFromToken).toHaveBeenCalledWith(mockAuthUser);
       expect(mockUpdate).toHaveBeenCalledWith(
         mockUser.id,
@@ -139,35 +140,33 @@ describe('UsersController', () => {
   });
 
   describe('update', () => {
-    it('should update a user by id', async () => {
-      const updateDto: UpdateUserDto = { name: 'Updated Name' };
-      const updatedUser: User = { ...mockUser, name: 'Updated Name' };
+    it('should update a user profile', async () => {
+      const updateDto: UpdateUserDto = { name: 'New Name' };
+      const updatedUser = { ...mockUser, name: 'New Name' };
 
-      mockUpdate.mockReturnValue(updatedUser);
+      mockUpdate.mockResolvedValue(updatedUser);
 
       const result = await controller.update(
-        'uuid-123',
+        mockUser.id,
         updateDto,
         mockAuthUser,
       );
 
-      expect(result).toEqual(updatedUser);
+      expect(result).toBe(updatedUser);
       expect(mockUpdate).toHaveBeenCalledWith(
-        'uuid-123',
+        mockUser.id,
         updateDto,
         mockAuthUser.keycloakSub,
       );
     });
 
-    it('should throw ForbiddenException when trying to update another user', async () => {
-      const updateDto: UpdateUserDto = { name: 'Updated Name' };
-
-      mockUpdate.mockImplementation(() => {
-        throw new ForbiddenException('You can only update your own profile');
-      });
+    it('should throw ForbiddenException if updating another user', async () => {
+      mockUpdate.mockRejectedValue(
+        new ForbiddenException('You can only update your own profile'),
+      );
 
       await expect(
-        controller.update('different-uuid', updateDto, mockAuthUser),
+        controller.update(mockUser.id, { name: 'Hacker' }, mockAuthUser),
       ).rejects.toThrow(ForbiddenException);
     });
 
@@ -185,9 +184,9 @@ describe('UsersController', () => {
   });
 
   describe('deleteCurrentUser', () => {
-    it('should delete current user account', async () => {
+    it('should delete the current user account', async () => {
       mockSyncUserFromToken.mockResolvedValue(mockUser);
-      mockDelete.mockReturnValue(undefined);
+      mockDelete.mockResolvedValue(undefined);
 
       await controller.deleteCurrentUser(mockAuthUser);
 
@@ -200,35 +199,33 @@ describe('UsersController', () => {
   });
 
   describe('delete', () => {
-    it('should delete a user by id', () => {
-      mockDelete.mockReturnValue(undefined);
+    it('should delete a user by ID', async () => {
+      mockDelete.mockResolvedValue(undefined);
 
-      controller.delete('uuid-123', mockAuthUser);
+      await controller.delete(mockUser.id, mockAuthUser);
 
       expect(mockDelete).toHaveBeenCalledWith(
-        'uuid-123',
+        mockUser.id,
         mockAuthUser.keycloakSub,
       );
     });
 
-    it('should throw ForbiddenException when trying to delete another user', () => {
-      mockDelete.mockImplementation(() => {
-        throw new ForbiddenException('You can only delete your own account');
-      });
-
-      expect(() => controller.delete('different-uuid', mockAuthUser)).toThrow(
-        ForbiddenException,
+    it('should throw ForbiddenException if deleting another user', async () => {
+      mockDelete.mockRejectedValue(
+        new ForbiddenException('You can only delete your own account'),
       );
+
+      await expect(
+        controller.delete(mockUser.id, mockAuthUser),
+      ).rejects.toThrow(ForbiddenException);
     });
 
-    it('should throw NotFoundException if user not found', () => {
-      mockDelete.mockImplementation(() => {
-        throw new NotFoundException('User with ID non-existent not found');
-      });
+    it('should throw NotFoundException if user not found', async () => {
+      mockDelete.mockRejectedValue(new NotFoundException('User not found'));
 
-      expect(() => controller.delete('non-existent', mockAuthUser)).toThrow(
-        NotFoundException,
-      );
+      await expect(
+        controller.delete('non-existent-id', mockAuthUser),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

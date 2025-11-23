@@ -98,7 +98,7 @@ describe('AuthService', () => {
           username: 'testuser',
           picture: 'https://example.com/avatar.jpg',
           roles: ['user', 'premium'],
-          // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+
           lastLoginAt: expect.any(Date),
         }),
       );

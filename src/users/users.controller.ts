@@ -19,7 +19,7 @@ import {
   ApiForbiddenResponse,
 } from '@nestjs/swagger';
 import { UsersService } from './users.service';
-import { User } from './users.entity';
+import { User, UserResponseDto } from './users.entity';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
@@ -62,7 +62,7 @@ export class UsersController {
   @ApiResponse({
     status: 200,
     description: 'Current user profile',
-    type: User,
+    type: UserResponseDto,
   })
   @ApiUnauthorizedResponse({
     description: 'Invalid or missing JWT token',
@@ -90,7 +90,7 @@ export class UsersController {
   @ApiResponse({
     status: 200,
     description: 'User profile updated successfully',
-    type: User,
+    type: UserResponseDto,
   })
   @ApiResponse({
     status: 400,
@@ -109,8 +109,10 @@ export class UsersController {
     const user = await this.authService.syncUserFromToken(authUser);
 
     // Update the user's profile
-    return Promise.resolve(
-      this.usersService.update(user.id, updateUserDto, authUser.keycloakSub),
+    return this.usersService.update(
+      user.id,
+      updateUserDto,
+      authUser.keycloakSub,
     );
   }
 
@@ -132,7 +134,7 @@ export class UsersController {
   @ApiResponse({
     status: 200,
     description: 'User found',
-    type: User,
+    type: UserResponseDto,
   })
   @ApiResponse({
     status: 404,
@@ -148,7 +150,7 @@ export class UsersController {
     this.logger.debug(
       `Get user by ID: ${id} (requested by ${authUser.keycloakSub})`,
     );
-    return Promise.resolve(this.usersService.findOne(id));
+    return this.usersService.findOne(id);
   }
 
   /**
@@ -169,7 +171,7 @@ export class UsersController {
   @ApiResponse({
     status: 200,
     description: 'User updated successfully',
-    type: User,
+    type: UserResponseDto,
   })
   @ApiResponse({
     status: 400,
@@ -191,9 +193,7 @@ export class UsersController {
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<User> {
     this.logger.log(`Update user ${id} (requested by ${authUser.keycloakSub})`);
-    return Promise.resolve(
-      this.usersService.update(id, updateUserDto, authUser.keycloakSub),
-    );
+    return this.usersService.update(id, updateUserDto, authUser.keycloakSub);
   }
 
   /**
@@ -224,7 +224,7 @@ export class UsersController {
     const user = await this.authService.syncUserFromToken(authUser);
 
     // Delete the user's account
-    this.usersService.delete(user.id, authUser.keycloakSub);
+    await this.usersService.delete(user.id, authUser.keycloakSub);
   }
 
   /**
@@ -257,11 +257,11 @@ export class UsersController {
     description: 'Invalid or missing JWT token',
   })
   @HttpCode(204)
-  delete(
+  async delete(
     @Param('id') id: string,
     @CurrentUser() authUser: AuthenticatedUser,
-  ): void {
+  ): Promise<void> {
     this.logger.log(`Delete user ${id} (requested by ${authUser.keycloakSub})`);
-    this.usersService.delete(id, authUser.keycloakSub);
+    await this.usersService.delete(id, authUser.keycloakSub);
   }
 }

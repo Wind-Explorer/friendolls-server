@@ -4,8 +4,8 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
-import { randomUUID } from 'crypto';
-import { User } from './users.entity';
+import { PrismaService } from '../database/prisma.service';
+import { User } from '@prisma/client';
 import type { UpdateUserDto } from './dto/update-user.dto';
 
 /**
@@ -35,14 +35,15 @@ export interface UpdateUserFromTokenDto {
 /**
  * Users Service
  *
- * Manages user data synchronized from Keycloak OIDC.
+ * Manages user data synchronized from Keycloak OIDC using Prisma ORM.
  * Users are created automatically when they first authenticate via Keycloak.
  * Direct user creation is not allowed - users must authenticate via Keycloak first.
  */
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
-  private users: User[] = [];
+
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Creates a new user from Keycloak token data.
@@ -51,10 +52,9 @@ export class UsersService {
    * @param createDto - User data extracted from Keycloak JWT token
    * @returns The newly created user
    */
-  createFromToken(createDto: CreateUserFromTokenDto): User {
-    const existingUser = this.users.find(
-      (u) => u.keycloakSub === createDto.keycloakSub,
-    );
+  async createFromToken(createDto: CreateUserFromTokenDto): Promise<User> {
+    // Check if user already exists
+    const existingUser = await this.findByKeycloakSub(createDto.keycloakSub);
 
     if (existingUser) {
       this.logger.warn(
@@ -63,19 +63,17 @@ export class UsersService {
       return existingUser;
     }
 
-    const newUser = new User();
-    newUser.id = randomUUID();
-    newUser.keycloakSub = createDto.keycloakSub;
-    newUser.email = createDto.email;
-    newUser.name = createDto.name;
-    newUser.username = createDto.username;
-    newUser.picture = createDto.picture;
-    newUser.roles = createDto.roles;
-    newUser.createdAt = new Date();
-    newUser.updatedAt = new Date();
-    newUser.lastLoginAt = new Date();
-
-    this.users.push(newUser);
+    const newUser = await this.prisma.user.create({
+      data: {
+        keycloakSub: createDto.keycloakSub,
+        email: createDto.email,
+        name: createDto.name,
+        username: createDto.username,
+        picture: createDto.picture,
+        roles: createDto.roles || [],
+        lastLoginAt: new Date(),
+      },
+    });
 
     this.logger.log(`Created new user: ${newUser.id} (${newUser.keycloakSub})`);
 
@@ -88,9 +86,12 @@ export class UsersService {
    * @param keycloakSub - The Keycloak subject (sub claim from JWT)
    * @returns The user if found, null otherwise
    */
-  findByKeycloakSub(keycloakSub: string): User | null {
-    const user = this.users.find((u) => u.keycloakSub === keycloakSub);
-    return user || null;
+  async findByKeycloakSub(keycloakSub: string): Promise<User | null> {
+    const user = await this.prisma.user.findUnique({
+      where: { keycloakSub },
+    });
+
+    return user;
   }
 
   /**
@@ -100,11 +101,15 @@ export class UsersService {
    * @returns The user entity
    * @throws NotFoundException if the user is not found
    */
-  findOne(id: string): User {
-    const user = this.users.find((u) => u.id === id);
+  async findOne(id: string): Promise<User> {
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+    });
+
     if (!user) {
       throw new NotFoundException(`User with ID ${id} not found`);
     }
+
     return user;
   }
 
@@ -117,31 +122,47 @@ export class UsersService {
    * @returns The updated user
    * @throws NotFoundException if the user is not found
    */
-  updateFromToken(
+  async updateFromToken(
     keycloakSub: string,
     updateDto: UpdateUserFromTokenDto,
-  ): User {
-    const user = this.findByKeycloakSub(keycloakSub);
+  ): Promise<User> {
+    const user = await this.findByKeycloakSub(keycloakSub);
+
     if (!user) {
       throw new NotFoundException(
         `User with keycloakSub ${keycloakSub} not found`,
       );
     }
 
-    // Update user properties from token
-    if (updateDto.email !== undefined) user.email = updateDto.email;
-    if (updateDto.name !== undefined) user.name = updateDto.name;
-    if (updateDto.username !== undefined) user.username = updateDto.username;
-    if (updateDto.picture !== undefined) user.picture = updateDto.picture;
-    if (updateDto.roles !== undefined) user.roles = updateDto.roles;
+    // Prepare update data - only include defined fields
+    const updateData: {
+      email?: string;
+      name?: string;
+      username?: string;
+      picture?: string;
+      roles?: string[];
+      lastLoginAt?: Date;
+    } = {};
+
+    if (updateDto.email !== undefined) updateData.email = updateDto.email;
+    if (updateDto.name !== undefined) updateData.name = updateDto.name;
+    if (updateDto.username !== undefined)
+      updateData.username = updateDto.username;
+    if (updateDto.picture !== undefined) updateData.picture = updateDto.picture;
+    if (updateDto.roles !== undefined) updateData.roles = updateDto.roles;
     if (updateDto.lastLoginAt !== undefined)
-      user.lastLoginAt = updateDto.lastLoginAt;
+      updateData.lastLoginAt = updateDto.lastLoginAt;
 
-    user.updatedAt = new Date();
+    const updatedUser = await this.prisma.user.update({
+      where: { keycloakSub },
+      data: updateData,
+    });
 
-    this.logger.debug(`Synced user from token: ${user.id} (${keycloakSub})`);
+    this.logger.debug(
+      `Synced user from token: ${updatedUser.id} (${keycloakSub})`,
+    );
 
-    return user;
+    return updatedUser;
   }
 
   /**
@@ -155,12 +176,12 @@ export class UsersService {
    * @throws NotFoundException if the user is not found
    * @throws ForbiddenException if the user tries to update someone else's profile
    */
-  update(
+  async update(
     id: string,
     updateUserDto: UpdateUserDto,
     requestingUserKeycloakSub: string,
-  ): User {
-    const user = this.findOne(id);
+  ): Promise<User> {
+    const user = await this.findOne(id);
 
     // Verify the user is updating their own profile
     if (user.keycloakSub !== requestingUserKeycloakSub) {
@@ -172,15 +193,22 @@ export class UsersService {
 
     // Only allow updating specific fields via the public API
     // Security-sensitive fields (keycloakSub, roles, etc.) cannot be updated
+    const updateData: {
+      name?: string;
+    } = {};
+
     if (updateUserDto.name !== undefined) {
-      user.name = updateUserDto.name;
+      updateData.name = updateUserDto.name;
     }
 
-    user.updatedAt = new Date();
+    const updatedUser = await this.prisma.user.update({
+      where: { id },
+      data: updateData,
+    });
 
     this.logger.log(`User ${id} updated their profile`);
 
-    return user;
+    return updatedUser;
   }
 
   /**
@@ -193,8 +221,8 @@ export class UsersService {
    * @throws NotFoundException if the user is not found
    * @throws ForbiddenException if the user tries to delete someone else's account
    */
-  delete(id: string, requestingUserKeycloakSub: string): void {
-    const user = this.findOne(id);
+  async delete(id: string, requestingUserKeycloakSub: string): Promise<void> {
+    const user = await this.findOne(id);
 
     // Verify the user is deleting their own account
     if (user.keycloakSub !== requestingUserKeycloakSub) {
@@ -204,12 +232,9 @@ export class UsersService {
       throw new ForbiddenException('You can only delete your own account');
     }
 
-    const index = this.users.findIndex((u) => u.id === id);
-    if (index === -1) {
-      throw new NotFoundException(`User with ID ${id} not found`);
-    }
-
-    this.users.splice(index, 1);
+    await this.prisma.user.delete({
+      where: { id },
+    });
 
     this.logger.log(
       `User ${id} deleted their account (Keycloak: ${requestingUserKeycloakSub})`,

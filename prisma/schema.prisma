@@ -1,0 +1,47 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// User model representing authenticated users from Keycloak OIDC
+model User {
+  /// Internal unique identifier (UUID)
+  id String @id @default(uuid())
+
+  /// Keycloak subject identifier (unique per user in Keycloak)
+  /// This is the 'sub' claim from the JWT token
+  keycloakSub String @unique @map("keycloak_sub")
+
+  /// User's display name
+  name String
+
+  /// User's email address
+  email String
+
+  /// User's preferred username from Keycloak
+  username String?
+
+  /// URL to user's profile picture
+  picture String?
+
+  /// User's roles from Keycloak (stored as JSON array)
+  roles String[]
+
+  /// Timestamp when the user was first created in the system
+  createdAt DateTime @default(now()) @map("created_at")
+
+  /// Timestamp when the user profile was last updated
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  /// Timestamp of last login
+  lastLoginAt DateTime? @map("last_login_at")
+
+  @@map("users")
+}

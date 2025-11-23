@@ -1,6 +1,8 @@
 import { ExecutionContext, Injectable, Logger } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Observable } from 'rxjs';
+import type { Request } from 'express';
+import { User } from 'src/users/users.entity';
 
 /**
  * JWT Authentication Guard
@@ -29,13 +31,18 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     context: ExecutionContext,
   ): boolean | Promise<boolean> | Observable<boolean> {
     // Log the authentication attempt
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const request = context.switchToHttp().getRequest();
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment, @typescript-eslint/no-unsafe-member-access
+    const request = context.switchToHttp().getRequest<Request>();
     const authHeader = request.headers.authorization;
 
     if (!authHeader) {
-      this.logger.warn('Authentication attempt without Authorization header');
+      this.logger.warn(
+        '❌ Authentication attempt without Authorization header',
+      );
+    } else {
+      const tokenPreview = String(authHeader).substring(0, 20);
+      this.logger.debug(
+        `🔐 Authentication attempt with token: ${tokenPreview}...`,
+      );
     }
 
     return super.canActivate(context);
@@ -50,24 +57,32 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
   handleRequest(
     err: any,
-    user: any,
+    user: User,
     info: any,
     context: ExecutionContext,
     status?: any,
   ): any {
+    const hasMessage = (value: unknown): value is { message?: unknown } =>
+      typeof value === 'object' && value !== null && 'message' in value;
+
     if (err || !user) {
-      const infoMessage =
-        info && typeof info === 'object' && 'message' in info
-          ? // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-            String(info.message)
-          : '';
-      const errMessage =
-        err && typeof err === 'object' && 'message' in err
-          ? // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-            String(err.message)
-          : '';
-      this.logger.warn(
-        `Authentication failed: ${infoMessage || errMessage || 'Unknown error'}`,
+      const infoMessage = hasMessage(info) ? String(info.message) : '';
+      const errMessage = hasMessage(err) ? String(err.message) : '';
+
+      this.logger.error(`❌ JWT Authentication failed`);
+      this.logger.error(`  Error: ${errMessage || 'none'}`);
+      this.logger.error(`  Info: ${infoMessage || 'none'}`);
+
+      if (info && typeof info === 'object') {
+        this.logger.error(`  Info details: ${JSON.stringify(info)}`);
+      }
+
+      if (err && typeof err === 'object') {
+        this.logger.error(`  Error details: ${JSON.stringify(err)}`);
+      }
+    } else {
+      this.logger.debug(
+        `✅ JWT Authentication successful for user: ${user.keycloakSub || 'unknown'}`,
       );
     }
 

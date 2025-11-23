@@ -40,10 +40,10 @@ export interface AuthenticatedUser {
  */
 export const CurrentUser = createParamDecorator(
   (data: keyof AuthenticatedUser | undefined, ctx: ExecutionContext) => {
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const request = ctx.switchToHttp().getRequest();
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    const user = request.user as AuthenticatedUser;
+    const request = ctx
+      .switchToHttp()
+      .getRequest<{ user?: AuthenticatedUser }>();
+    const user = request.user;
 
     // If a specific property is requested, return only that property
     return data ? user?.[data] : user;

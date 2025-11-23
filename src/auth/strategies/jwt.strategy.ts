@@ -2,6 +2,7 @@ import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, ExtractJwt } from 'passport-jwt';
+
 import { passportJwtSecret } from 'jwks-rsa';
 
 /**
@@ -74,7 +75,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       algorithms: ['RS256'],
     });
 
-    this.logger.log(`JWT Strategy initialized with issuer: ${issuer}`);
+    this.logger.log(`JWT Strategy initialized`);
+    this.logger.log(`  JWKS URI: ${jwksUri}`);
+    this.logger.log(`  Issuer: ${issuer}`);
+    this.logger.log(`  Audience: ${audience || 'NOT SET'}`);
   }
 
   /**
@@ -93,6 +97,16 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     picture?: string;
     roles?: string[];
   }> {
+    this.logger.debug(`Validating JWT token payload`);
+    this.logger.debug(`  Issuer: ${payload.iss}`);
+    this.logger.debug(
+      `  Audience: ${Array.isArray(payload.aud) ? payload.aud.join(',') : payload.aud}`,
+    );
+    this.logger.debug(`  Subject: ${payload.sub}`);
+    this.logger.debug(
+      `  Expires: ${new Date(payload.exp * 1000).toISOString()}`,
+    );
+
     if (!payload.sub) {
       this.logger.warn('JWT token missing required "sub" claim');
       throw new UnauthorizedException('Invalid token: missing subject');
@@ -120,7 +134,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       roles: roles.length > 0 ? roles : undefined,
     };
 
-    this.logger.debug(`Validated token for user: ${payload.sub}`);
+    this.logger.log(
+      `✅ Successfully validated token for user: ${payload.sub} (${payload.email ?? payload.preferred_username ?? 'no email'})`,
+    );
 
     return Promise.resolve(user);
   }
