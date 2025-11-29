@@ -5,6 +5,7 @@ import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './database/database.module';
+import { WsModule } from './ws/ws.module';
 
 /**
  * Validates required environment variables.
@@ -51,6 +52,7 @@ function validateEnvironment(config: Record<string, any>): Record<string, any> {
     DatabaseModule, // Global database module for Prisma
     UsersModule,
     AuthModule,
+    WsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
