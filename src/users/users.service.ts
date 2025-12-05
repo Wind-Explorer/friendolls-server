@@ -7,6 +7,7 @@ import {
 import { PrismaService } from '../database/prisma.service';
 import { User } from '@prisma/client';
 import type { UpdateUserDto } from './dto/update-user.dto';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/client';
 
 /**
  * Interface for creating a user from Keycloak token
@@ -21,23 +22,35 @@ export interface CreateUserFromTokenDto {
 }
 
 /**
- * Interface for updating a user from Keycloak token
- */
-export interface UpdateUserFromTokenDto {
-  email?: string;
-  name?: string;
-  username?: string;
-  picture?: string;
-  roles?: string[];
-  lastLoginAt?: Date;
-}
-
-/**
  * Users Service
  *
  * Manages user data synchronized from Keycloak OIDC using Prisma ORM.
  * Users are created automatically when they first authenticate via Keycloak.
  * Direct user creation is not allowed - users must authenticate via Keycloak first.
+ *
+ * ## Profile Data Ownership
+ *
+ * Keycloak is the single source of truth for authentication and profile data:
+ * - `keycloakSub`: Managed by Keycloak (immutable identifier)
+ * - `email`: Managed by Keycloak
+ * - `name`: Managed by Keycloak
+ * - `username`: Managed by Keycloak
+ * - `picture`: Managed by Keycloak
+ * - `roles`: Managed by Keycloak
+ *
+ * Local application data:
+ * - `lastLoginAt`: Tracked locally for analytics
+ *
+ * ## Sync Strategy
+ *
+ * - On every login: Compares Keycloak data with local data
+ *   - If profile changed: Updates all fields (name, email, picture, roles)
+ *   - If profile unchanged: Only updates `lastLoginAt`
+ *   - Read operations are cheaper than writes in PostgreSQL
+ * - Explicit sync: Call `syncProfileFromToken()` for force sync (webhooks, manual refresh)
+ *
+ * This optimizes performance by avoiding unnecessary writes while keeping
+ * profile data in sync with Keycloak on every authentication.
  */
 @Injectable()
 export class UsersService {
@@ -46,38 +59,146 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Creates a new user from Keycloak token data.
+   * Creates a new user or syncs/tracks login for existing users.
    * This method is called automatically during authentication flow.
    *
+   * For new users: Creates the user with full profile data from token.
+   * For existing users: Compares Keycloak data with local data and only updates if changed.
+   * This optimizes performance since reads are cheaper than writes in PostgreSQL.
+   *
    * @param createDto - User data extracted from Keycloak JWT token
-   * @returns The newly created user
+   * @returns The user entity
    */
   async createFromToken(createDto: CreateUserFromTokenDto): Promise<User> {
-    // Check if user already exists
-    const existingUser = await this.findByKeycloakSub(createDto.keycloakSub);
+    // Normalize roles once to avoid duplication
+    const roles = createDto.roles || [];
+    const now = new Date();
+
+    // Check if user exists first (read is cheaper than write)
+    const existingUser = await this.prisma.user.findUnique({
+      where: { keycloakSub: createDto.keycloakSub },
+    });
 
     if (existingUser) {
-      this.logger.warn(
-        `Attempted to create duplicate user with keycloakSub: ${createDto.keycloakSub}`,
-      );
-      return existingUser;
+      // Compare profile data to detect changes
+      const profileChanged =
+        existingUser.email !== createDto.email ||
+        existingUser.name !== createDto.name ||
+        existingUser.username !== createDto.username ||
+        existingUser.picture !== createDto.picture ||
+        JSON.stringify(existingUser.roles) !== JSON.stringify(roles);
+
+      if (profileChanged) {
+        // Profile data changed - update everything
+        this.logger.debug(
+          `Profile changed for user: ${existingUser.id} (${createDto.keycloakSub})`,
+        );
+        return await this.prisma.user.update({
+          where: { keycloakSub: createDto.keycloakSub },
+          data: {
+            email: createDto.email,
+            name: createDto.name,
+            username: createDto.username,
+            picture: createDto.picture,
+            roles,
+            lastLoginAt: now,
+          },
+        });
+      } else {
+        // Profile unchanged - only update lastLoginAt
+        this.logger.debug(
+          `Login tracked for user: ${existingUser.id} (${createDto.keycloakSub})`,
+        );
+        return await this.prisma.user.update({
+          where: { keycloakSub: createDto.keycloakSub },
+          data: {
+            lastLoginAt: now,
+          },
+        });
+      }
     }
 
-    const newUser = await this.prisma.user.create({
-      data: {
+    // New user - create with all profile data
+    // Use upsert to handle race condition if user was created between findUnique and here
+    this.logger.log(`Creating new user from token: ${createDto.keycloakSub}`);
+    const user = await this.prisma.user.upsert({
+      where: { keycloakSub: createDto.keycloakSub },
+      update: {
+        // If created by concurrent request, update with current data
+        email: createDto.email,
+        name: createDto.name,
+        username: createDto.username,
+        picture: createDto.picture,
+        roles,
+        lastLoginAt: now,
+      },
+      create: {
         keycloakSub: createDto.keycloakSub,
         email: createDto.email,
         name: createDto.name,
         username: createDto.username,
         picture: createDto.picture,
-        roles: createDto.roles || [],
-        lastLoginAt: new Date(),
+        roles,
+        lastLoginAt: now,
       },
     });
 
-    this.logger.log(`Created new user: ${newUser.id} (${newUser.keycloakSub})`);
+    return user;
+  }
 
-    return newUser;
+  /**
+   * Force syncs user profile data from Keycloak token.
+   * This should be called when explicit profile sync is needed.
+   *
+   * Use cases:
+   * - Keycloak webhook notification of profile change
+   * - Manual profile refresh request
+   * - Administrative profile sync operations
+   *
+   * Note: createFromToken() already handles profile sync on login automatically.
+   * This method is for explicit, out-of-band sync operations.
+   *
+   * @param keycloakSub - The Keycloak subject identifier
+   * @param profileData - Profile data from Keycloak token
+   * @returns The updated user
+   * @throws NotFoundException if the user is not found
+   */
+  async syncProfileFromToken(
+    keycloakSub: string,
+    profileData: Omit<CreateUserFromTokenDto, 'keycloakSub'>,
+  ): Promise<User> {
+    // Normalize roles once
+    const roles = profileData.roles || [];
+
+    try {
+      const updatedUser = await this.prisma.user.update({
+        where: { keycloakSub },
+        data: {
+          email: profileData.email,
+          name: profileData.name,
+          username: profileData.username,
+          picture: profileData.picture,
+          roles,
+        },
+      });
+
+      this.logger.log(
+        `Profile synced from Keycloak for user: ${updatedUser.id} (${keycloakSub})`,
+      );
+
+      return updatedUser;
+    } catch (error) {
+      // Prisma throws P2025 when record is not found
+      if (
+        error instanceof PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException(
+          `User with keycloakSub ${keycloakSub} not found`,
+        );
+      }
+      throw error;
+    }
   }
 
   /**
@@ -114,63 +235,12 @@ export class UsersService {
   }
 
   /**
-   * Updates a user's profile from Keycloak token data.
-   * This syncs the user's data from Keycloak during authentication.
-   *
-   * @param keycloakSub - The Keycloak subject identifier
-   * @param updateDto - Updated user data from token
-   * @returns The updated user
-   * @throws NotFoundException if the user is not found
-   */
-  async updateFromToken(
-    keycloakSub: string,
-    updateDto: UpdateUserFromTokenDto,
-  ): Promise<User> {
-    const user = await this.findByKeycloakSub(keycloakSub);
-
-    if (!user) {
-      throw new NotFoundException(
-        `User with keycloakSub ${keycloakSub} not found`,
-      );
-    }
-
-    // Prepare update data - only include defined fields
-    const updateData: {
-      email?: string;
-      name?: string;
-      username?: string;
-      picture?: string;
-      roles?: string[];
-      lastLoginAt?: Date;
-    } = {};
-
-    if (updateDto.email !== undefined) updateData.email = updateDto.email;
-    if (updateDto.name !== undefined) updateData.name = updateDto.name;
-    if (updateDto.username !== undefined)
-      updateData.username = updateDto.username;
-    if (updateDto.picture !== undefined) updateData.picture = updateDto.picture;
-    if (updateDto.roles !== undefined) updateData.roles = updateDto.roles;
-    if (updateDto.lastLoginAt !== undefined)
-      updateData.lastLoginAt = updateDto.lastLoginAt;
-
-    const updatedUser = await this.prisma.user.update({
-      where: { keycloakSub },
-      data: updateData,
-    });
-
-    this.logger.debug(
-      `Synced user from token: ${updatedUser.id} (${keycloakSub})`,
-    );
-
-    return updatedUser;
-  }
-
-  /**
    * Updates a user's profile.
-   * Users can only update their own profile (enforced by controller).
+   * Currently, all profile fields are managed by Keycloak and cannot be updated locally.
+   * This method exists for future extensibility if local profile fields are added.
    *
    * @param id - The user's internal ID
-   * @param updateUserDto - The fields to update
+   * @param updateUserDto - The fields to update (currently none supported)
    * @param requestingUserKeycloakSub - The Keycloak sub of the requesting user
    * @returns The updated user
    * @throws NotFoundException if the user is not found
@@ -191,22 +261,16 @@ export class UsersService {
       throw new ForbiddenException('You can only update your own profile');
     }
 
-    // Only allow updating specific fields via the public API
-    // Security-sensitive fields (keycloakSub, roles, etc.) cannot be updated
-    const updateData: {
-      name?: string;
-    } = {};
-
-    if (updateUserDto.name !== undefined) {
-      updateData.name = updateUserDto.name;
-    }
+    // Currently no fields are updatable locally - all managed by Keycloak
+    // This structure allows for future extensibility if local fields are added
+    const updateData: Record<string, never> = {};
 
     const updatedUser = await this.prisma.user.update({
       where: { id },
       data: updateData,
     });
 
-    this.logger.log(`User ${id} updated their profile`);
+    this.logger.log(`User ${id} profile update requested`);
 
     return updatedUser;
   }

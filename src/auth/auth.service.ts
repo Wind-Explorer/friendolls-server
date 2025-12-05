@@ -7,8 +7,23 @@ import { User } from '../users/users.entity';
  * Authentication Service
  *
  * Handles authentication-related business logic including:
- * - User synchronization from Keycloak tokens
- * - Profile updates for authenticated users
+ * - User login tracking from Keycloak tokens
+ * - Profile synchronization from Keycloak
+ * - Role-based authorization checks
+ *
+ * ## User Sync Strategy
+ *
+ * On every authentication:
+ * - Creates new users with full profile data from Keycloak
+ * - For existing users, compares Keycloak data with local database:
+ *   - If profile changed: Updates all fields (email, name, username, picture, roles, lastLoginAt)
+ *   - If profile unchanged: Only updates lastLoginAt (lightweight operation)
+ *
+ * This optimizes database performance since reads are cheaper than writes in PostgreSQL.
+ * Most logins only update lastLoginAt, but profile changes sync automatically.
+ *
+ * For explicit profile sync (webhooks, admin operations), use:
+ * - UsersService.syncProfileFromToken() - force sync regardless of changes
  */
 @Injectable()
 export class AuthService {
@@ -17,42 +32,31 @@ export class AuthService {
   constructor(private readonly usersService: UsersService) {}
 
   /**
-   * Synchronizes a user from Keycloak token to local database.
-   * Creates a new user if they don't exist, or updates their last login time.
+   * Handles user login and profile synchronization from Keycloak token.
+   * Creates new users with full profile data.
+   * For existing users, intelligently syncs only changed fields to optimize performance.
+   *
+   * The service compares Keycloak data with local database and:
+   * - Updates profile fields only if they changed from Keycloak
+   * - Always updates lastLoginAt to track login activity
    *
    * @param authenticatedUser - User data extracted from JWT token
-   * @returns The synchronized user entity
+   * @returns The user entity
    */
   async syncUserFromToken(authenticatedUser: AuthenticatedUser): Promise<User> {
     const { keycloakSub, email, name, username, picture, roles } =
       authenticatedUser;
 
-    // Try to find existing user by Keycloak subject
-    let user = await this.usersService.findByKeycloakSub(keycloakSub);
-
-    if (user) {
-      // User exists - update last login and sync profile data
-      this.logger.debug(`Syncing existing user: ${keycloakSub}`);
-      user = await this.usersService.updateFromToken(keycloakSub, {
-        email,
-        name,
-        username,
-        picture,
-        roles,
-        lastLoginAt: new Date(),
-      });
-    } else {
-      // New user - create from token data
-      this.logger.log(`Creating new user from token: ${keycloakSub}`);
-      user = await this.usersService.createFromToken({
-        keycloakSub,
-        email: email || '',
-        name: name || username || 'Unknown User',
-        username,
-        picture,
-        roles,
-      });
-    }
+    // Use createFromToken which handles upsert atomically
+    // This prevents race conditions when multiple requests arrive simultaneously
+    const user = await this.usersService.createFromToken({
+      keycloakSub,
+      email: email || '',
+      name: name || username || 'Unknown User',
+      username,
+      picture,
+      roles,
+    });
 
     return user;
   }

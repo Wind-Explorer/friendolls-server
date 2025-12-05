@@ -1,25 +1,14 @@
-import { ApiProperty } from '@nestjs/swagger';
-import { IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
-
 /**
  * DTO for updating user profile.
- * Only allows updating safe, user-controlled fields.
- * Security-sensitive fields (keycloakSub, roles, email, etc.) are managed by Keycloak.
+ *
+ * Currently all profile fields (name, email, username, picture, roles) are managed by Keycloak
+ * and cannot be updated locally. This DTO exists for future extensibility if local profile
+ * fields are added (e.g., preferences, settings, bio, etc.).
+ *
+ * To update profile data, users must update their profile in Keycloak. Changes will sync
+ * automatically on next login.
  */
 export class UpdateUserDto {
-  /**
-   * User's display name
-   */
-  @ApiProperty({
-    description: "User's display name",
-    example: 'John Doe',
-    required: false,
-    minLength: 1,
-    maxLength: 100,
-  })
-  @IsOptional()
-  @IsString()
-  @MinLength(1, { message: 'Name must not be empty' })
-  @MaxLength(100, { message: 'Name must not exceed 100 characters' })
-  name?: string;
+  // Currently no fields are updatable locally
+  // Reserved for future local profile extensions
 }

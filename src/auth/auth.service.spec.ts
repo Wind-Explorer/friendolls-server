@@ -7,13 +7,9 @@ import { User } from '../users/users.entity';
 describe('AuthService', () => {
   let service: AuthService;
 
-  const mockFindByKeycloakSub = jest.fn();
-  const mockUpdateFromToken = jest.fn();
   const mockCreateFromToken = jest.fn();
 
   const mockUsersService = {
-    findByKeycloakSub: mockFindByKeycloakSub,
-    updateFromToken: mockUpdateFromToken,
     createFromToken: mockCreateFromToken,
   };
 
@@ -62,13 +58,11 @@ describe('AuthService', () => {
 
   describe('syncUserFromToken', () => {
     it('should create a new user if user does not exist', async () => {
-      mockFindByKeycloakSub.mockReturnValue(null);
       mockCreateFromToken.mockReturnValue(mockUser);
 
       const result = await service.syncUserFromToken(mockAuthUser);
 
       expect(result).toEqual(mockUser);
-      expect(mockFindByKeycloakSub).toHaveBeenCalledWith('f:realm:user123');
       expect(mockCreateFromToken).toHaveBeenCalledWith({
         keycloakSub: 'f:realm:user123',
         email: 'test@example.com',
@@ -77,32 +71,23 @@ describe('AuthService', () => {
         picture: 'https://example.com/avatar.jpg',
         roles: ['user', 'premium'],
       });
-      expect(mockUpdateFromToken).not.toHaveBeenCalled();
     });
 
-    it('should update existing user if user exists', async () => {
+    it('should handle existing user via upsert', async () => {
       const updatedUser = { ...mockUser, lastLoginAt: new Date('2024-02-01') };
-      mockFindByKeycloakSub.mockReturnValue(mockUser);
-      mockUpdateFromToken.mockReturnValue(updatedUser);
+      mockCreateFromToken.mockReturnValue(updatedUser);
 
       const result = await service.syncUserFromToken(mockAuthUser);
 
       expect(result).toEqual(updatedUser);
-      expect(mockFindByKeycloakSub).toHaveBeenCalledWith('f:realm:user123');
-
-      expect(mockUpdateFromToken).toHaveBeenCalledWith(
-        'f:realm:user123',
-        expect.objectContaining({
-          email: 'test@example.com',
-          name: 'Test User',
-          username: 'testuser',
-          picture: 'https://example.com/avatar.jpg',
-          roles: ['user', 'premium'],
-
-          lastLoginAt: expect.any(Date),
-        }),
-      );
-      expect(mockCreateFromToken).not.toHaveBeenCalled();
+      expect(mockCreateFromToken).toHaveBeenCalledWith({
+        keycloakSub: 'f:realm:user123',
+        email: 'test@example.com',
+        name: 'Test User',
+        username: 'testuser',
+        picture: 'https://example.com/avatar.jpg',
+        roles: ['user', 'premium'],
+      });
     });
 
     it('should handle user with no email by using empty string', async () => {
@@ -111,7 +96,6 @@ describe('AuthService', () => {
         name: 'No Email User',
       };
 
-      mockFindByKeycloakSub.mockReturnValue(null);
       mockCreateFromToken.mockReturnValue({
         ...mockUser,
         email: '',
@@ -131,30 +115,28 @@ describe('AuthService', () => {
     it('should handle user with no name by using username or fallback', async () => {
       const authUserNoName: AuthenticatedUser = {
         keycloakSub: 'f:realm:user789',
-        username: 'someusername',
+        username: 'fallbackuser',
       };
 
-      mockFindByKeycloakSub.mockReturnValue(null);
       mockCreateFromToken.mockReturnValue({
         ...mockUser,
-        name: 'someusername',
+        name: 'fallbackuser',
       });
 
       await service.syncUserFromToken(authUserNoName);
 
       expect(mockCreateFromToken).toHaveBeenCalledWith(
         expect.objectContaining({
-          name: 'someusername',
+          name: 'fallbackuser',
         }),
       );
     });
 
     it('should use "Unknown User" when no name or username is available', async () => {
       const authUserMinimal: AuthenticatedUser = {
-        keycloakSub: 'f:realm:user000',
+        keycloakSub: 'f:realm:minimal',
       };
 
-      mockFindByKeycloakSub.mockReturnValue(null);
       mockCreateFromToken.mockReturnValue({
         ...mockUser,
         name: 'Unknown User',
@@ -176,7 +158,6 @@ describe('AuthService', () => {
         name: 'Empty Sub User',
       };
 
-      mockFindByKeycloakSub.mockReturnValue(null);
       mockCreateFromToken.mockReturnValue({
         ...mockUser,
         keycloakSub: '',
@@ -186,7 +167,6 @@ describe('AuthService', () => {
 
       const result = await service.syncUserFromToken(authUserEmptySub);
 
-      expect(mockFindByKeycloakSub).toHaveBeenCalledWith('');
       expect(mockCreateFromToken).toHaveBeenCalledWith(
         expect.objectContaining({
           keycloakSub: '',
@@ -203,7 +183,6 @@ describe('AuthService', () => {
         name: 'Malformed User',
       };
 
-      mockFindByKeycloakSub.mockReturnValue(null);
       mockCreateFromToken.mockReturnValue({
         ...mockUser,
         keycloakSub: 'invalid-format',
@@ -213,7 +192,6 @@ describe('AuthService', () => {
 
       const result = await service.syncUserFromToken(authUserMalformed);
 
-      expect(mockFindByKeycloakSub).toHaveBeenCalledWith('invalid-format');
       expect(mockCreateFromToken).toHaveBeenCalledWith(
         expect.objectContaining({
           keycloakSub: 'invalid-format',
