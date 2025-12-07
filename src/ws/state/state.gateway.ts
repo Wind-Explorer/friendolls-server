@@ -14,9 +14,14 @@ import type { AuthenticatedSocket } from '../../types/socket';
 import { AuthService } from '../../auth/auth.service';
 import { JwtVerificationService } from '../../auth/services/jwt-verification.service';
 import { CursorPositionDto } from '../dto/cursor-position.dto';
+import { FriendRequestWithRelations } from '../../friends/friends.service';
 
 const WS_EVENT = {
   CURSOR_REPORT_POSITION: 'cursor-report-position',
+  FRIEND_REQUEST_RECEIVED: 'friend-request-received',
+  FRIEND_REQUEST_ACCEPTED: 'friend-request-accepted',
+  FRIEND_REQUEST_DENIED: 'friend-request-denied',
+  UNFRIENDED: 'unfriended',
 } as const;
 
 @WebSocketGateway({
@@ -29,6 +34,7 @@ export class StateGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
   private readonly logger = new Logger(StateGateway.name);
+  private userSocketMap: Map<string, string> = new Map();
 
   @WebSocketServer() io: Server;
 
@@ -74,7 +80,8 @@ export class StateGateway
 
       this.logger.log(`WebSocket authenticated: ${payload.sub}`);
 
-      await this.authService.syncUserFromToken(client.data.user);
+      const user = await this.authService.syncUserFromToken(client.data.user);
+      this.userSocketMap.set(user.id, client.id);
 
       const { sockets } = this.io.sockets;
       this.logger.log(
@@ -91,6 +98,16 @@ export class StateGateway
 
   handleDisconnect(client: AuthenticatedSocket) {
     const user = client.data.user;
+
+    if (user) {
+      for (const [userId, socketId] of this.userSocketMap.entries()) {
+        if (socketId === client.id) {
+          this.userSocketMap.delete(userId);
+          break;
+        }
+      }
+    }
+
     this.logger.log(
       `Client id: ${client.id} disconnected (user: ${user?.keycloakSub || 'unknown'})`,
     );
@@ -111,5 +128,81 @@ export class StateGateway
       `Message received from client id: ${client.id} (user: ${user.keycloakSub})`,
     );
     this.logger.debug(`Payload: ${JSON.stringify(data, null, 0)}`);
+  }
+
+  emitFriendRequestReceived(
+    userId: string,
+    friendRequest: FriendRequestWithRelations,
+  ) {
+    const socketId = this.userSocketMap.get(userId);
+    if (socketId) {
+      this.io.to(socketId).emit(WS_EVENT.FRIEND_REQUEST_RECEIVED, {
+        id: friendRequest.id,
+        sender: {
+          id: friendRequest.sender.id,
+          name: friendRequest.sender.name,
+          username: friendRequest.sender.username,
+          picture: friendRequest.sender.picture,
+        },
+        createdAt: friendRequest.createdAt,
+      });
+      this.logger.debug(
+        `Emitted friend request notification to user ${userId}`,
+      );
+    }
+  }
+
+  emitFriendRequestAccepted(
+    userId: string,
+    friendRequest: FriendRequestWithRelations,
+  ) {
+    const socketId = this.userSocketMap.get(userId);
+    if (socketId) {
+      this.io.to(socketId).emit(WS_EVENT.FRIEND_REQUEST_ACCEPTED, {
+        id: friendRequest.id,
+        friend: {
+          id: friendRequest.receiver.id,
+          name: friendRequest.receiver.name,
+          username: friendRequest.receiver.username,
+          picture: friendRequest.receiver.picture,
+        },
+        acceptedAt: friendRequest.updatedAt,
+      });
+      this.logger.debug(
+        `Emitted friend request accepted notification to user ${userId}`,
+      );
+    }
+  }
+
+  emitFriendRequestDenied(
+    userId: string,
+    friendRequest: FriendRequestWithRelations,
+  ) {
+    const socketId = this.userSocketMap.get(userId);
+    if (socketId) {
+      this.io.to(socketId).emit(WS_EVENT.FRIEND_REQUEST_DENIED, {
+        id: friendRequest.id,
+        denier: {
+          id: friendRequest.receiver.id,
+          name: friendRequest.receiver.name,
+          username: friendRequest.receiver.username,
+          picture: friendRequest.receiver.picture,
+        },
+        deniedAt: friendRequest.updatedAt,
+      });
+      this.logger.debug(
+        `Emitted friend request denied notification to user ${userId}`,
+      );
+    }
+  }
+
+  emitUnfriended(userId: string, friendId: string) {
+    const socketId = this.userSocketMap.get(userId);
+    if (socketId) {
+      this.io.to(socketId).emit(WS_EVENT.UNFRIENDED, {
+        friendId,
+      });
+      this.logger.debug(`Emitted unfriended notification to user ${userId}`);
+    }
   }
 }

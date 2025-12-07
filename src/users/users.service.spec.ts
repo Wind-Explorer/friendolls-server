@@ -4,10 +4,10 @@ import { PrismaService } from '../database/prisma.service';
 import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { User } from '@prisma/client';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { PrismaClientKnownRequestError } from '@prisma/client/runtime/client';
 
 describe('UsersService', () => {
   let service: UsersService;
-  let prismaService: PrismaService;
 
   const mockUser: User = {
     id: '550e8400-e29b-41d4-a716-446655440000',
@@ -26,6 +26,7 @@ describe('UsersService', () => {
     user: {
       create: jest.fn(),
       findUnique: jest.fn(),
+      findMany: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
       upsert: jest.fn(),
@@ -44,7 +45,6 @@ describe('UsersService', () => {
     }).compile();
 
     service = module.get<UsersService>(UsersService);
-    prismaService = module.get<PrismaService>(PrismaService);
 
     jest.clearAllMocks();
   });
@@ -509,10 +509,15 @@ describe('UsersService', () => {
         name: 'Test User',
       };
 
-      mockPrismaService.user.update.mockRejectedValue({
-        code: 'P2025',
-        message: 'Record not found',
-      });
+      const prismaError = new PrismaClientKnownRequestError(
+        'Record not found',
+        {
+          code: 'P2025',
+          clientVersion: '5.0.0',
+        },
+      );
+
+      mockPrismaService.user.update.mockRejectedValue(prismaError);
 
       await expect(
         service.syncProfileFromToken('nonexistent', profileData),
@@ -585,6 +590,136 @@ describe('UsersService', () => {
       await expect(
         service.syncProfileFromToken('f:realm:user123', profileData),
       ).rejects.toThrow('Database connection failed');
+    });
+  });
+
+  describe('searchUsers', () => {
+    const users: User[] = [
+      { ...mockUser, id: 'user1', username: 'alice' },
+      { ...mockUser, id: 'user2', username: 'bob' },
+      { ...mockUser, id: 'user3', username: 'charlie' },
+    ];
+
+    it('should search users by username (case-insensitive, partial match)', async () => {
+      mockPrismaService.user.findMany.mockResolvedValue([users[0]]);
+
+      const result = await service.searchUsers('ALI');
+
+      expect(result).toEqual([users[0]]);
+      expect(mockPrismaService.user.findMany).toHaveBeenCalledWith({
+        where: {
+          username: {
+            contains: 'ALI',
+            mode: 'insensitive',
+          },
+        },
+        take: 20,
+        orderBy: {
+          username: 'asc',
+        },
+      });
+    });
+
+    it('should exclude specified user from results', async () => {
+      mockPrismaService.user.findMany.mockResolvedValue([users[1], users[2]]);
+
+      const result = await service.searchUsers(undefined, 'user1');
+
+      expect(result).toEqual([users[1], users[2]]);
+      expect(mockPrismaService.user.findMany).toHaveBeenCalledWith({
+        where: {
+          id: {
+            not: 'user1',
+          },
+        },
+        take: 20,
+        orderBy: {
+          username: 'asc',
+        },
+      });
+    });
+
+    it('should combine username search with user exclusion', async () => {
+      mockPrismaService.user.findMany.mockResolvedValue([users[1]]);
+
+      const result = await service.searchUsers('b', 'user1');
+
+      expect(result).toEqual([users[1]]);
+      expect(mockPrismaService.user.findMany).toHaveBeenCalledWith({
+        where: {
+          username: {
+            contains: 'b',
+            mode: 'insensitive',
+          },
+          id: {
+            not: 'user1',
+          },
+        },
+        take: 20,
+        orderBy: {
+          username: 'asc',
+        },
+      });
+    });
+
+    it('should limit results to 20 users', async () => {
+      const manyUsers = Array.from({ length: 25 }, (_, i) => ({
+        ...mockUser,
+        id: `user${i}`,
+        username: `user${i}`,
+      }));
+      const limitedUsers = manyUsers.slice(0, 20);
+
+      mockPrismaService.user.findMany.mockResolvedValue(limitedUsers);
+
+      const result = await service.searchUsers();
+
+      expect(result).toHaveLength(20);
+      expect(mockPrismaService.user.findMany).toHaveBeenCalledWith({
+        where: {},
+        take: 20,
+        orderBy: {
+          username: 'asc',
+        },
+      });
+    });
+
+    it('should return all users when no filters provided', async () => {
+      mockPrismaService.user.findMany.mockResolvedValue(users);
+
+      const result = await service.searchUsers();
+
+      expect(result).toEqual(users);
+      expect(mockPrismaService.user.findMany).toHaveBeenCalledWith({
+        where: {},
+        take: 20,
+        orderBy: {
+          username: 'asc',
+        },
+      });
+    });
+
+    it('should return empty array when no matches found', async () => {
+      mockPrismaService.user.findMany.mockResolvedValue([]);
+
+      const result = await service.searchUsers('nonexistent');
+
+      expect(result).toEqual([]);
+    });
+
+    it('should order results by username ascending', async () => {
+      const unorderedUsers = [users[2], users[0], users[1]];
+      mockPrismaService.user.findMany.mockResolvedValue(unorderedUsers);
+
+      await service.searchUsers();
+
+      expect(mockPrismaService.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: {
+            username: 'asc',
+          },
+        }),
+      );
     });
   });
 });

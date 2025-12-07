@@ -5,5 +5,6 @@ import { AuthModule } from '../auth/auth.module';
 @Module({
   imports: [AuthModule],
   providers: [StateGateway],
+  exports: [StateGateway],
 })
 export class WsModule {}

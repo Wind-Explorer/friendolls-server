@@ -5,7 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../database/prisma.service';
-import { User } from '@prisma/client';
+import { User, Prisma } from '@prisma/client';
 import type { UpdateUserDto } from './dto/update-user.dto';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/client';
 
@@ -288,7 +288,6 @@ export class UsersService {
   async delete(id: string, requestingUserKeycloakSub: string): Promise<void> {
     const user = await this.findOne(id);
 
-    // Verify the user is deleting their own account
     if (user.keycloakSub !== requestingUserKeycloakSub) {
       this.logger.warn(
         `User ${requestingUserKeycloakSub} attempted to delete user ${id}`,
@@ -303,5 +302,35 @@ export class UsersService {
     this.logger.log(
       `User ${id} deleted their account (Keycloak: ${requestingUserKeycloakSub})`,
     );
+  }
+
+  async searchUsers(
+    username?: string,
+    excludeUserId?: string,
+  ): Promise<User[]> {
+    const where: Prisma.UserWhereInput = {};
+
+    if (username) {
+      where.username = {
+        contains: username,
+        mode: 'insensitive',
+      };
+    }
+
+    if (excludeUserId) {
+      where.id = {
+        not: excludeUserId,
+      };
+    }
+
+    const users = await this.prisma.user.findMany({
+      where,
+      take: 20,
+      orderBy: {
+        username: 'asc',
+      },
+    });
+
+    return users;
   }
 }

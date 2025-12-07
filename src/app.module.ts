@@ -6,6 +6,7 @@ import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './database/database.module';
 import { WsModule } from './ws/ws.module';
+import { FriendsModule } from './friends/friends.module';
 
 /**
  * Validates required environment variables.
@@ -43,16 +44,16 @@ function validateEnvironment(config: Record<string, any>): Record<string, any> {
  */
 @Module({
   imports: [
-    // Configure global environment variables with validation
     ConfigModule.forRoot({
-      isGlobal: true, // Make ConfigService available throughout the app
-      envFilePath: '.env', // Load from .env file
-      validate: validateEnvironment, // Validate required environment variables
+      isGlobal: true,
+      envFilePath: '.env',
+      validate: validateEnvironment,
     }),
-    DatabaseModule, // Global database module for Prisma
+    DatabaseModule,
     UsersModule,
     AuthModule,
     WsModule,
+    FriendsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
