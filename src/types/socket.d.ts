@@ -8,6 +8,7 @@ export type AuthenticatedSocket = BaseSocket<
   DefaultEventsMap, // InterServerEvents
   {
     user?: AuthenticatedUser;
+    userId?: string;
     friends?: Set<string>; // Set of friend user IDs
   }
 >;

@@ -26,6 +26,7 @@ const WS_EVENT = {
   FRIEND_REQUEST_DENIED: 'friend-request-denied',
   UNFRIENDED: 'unfriended',
   FRIEND_CURSOR_POSITION: 'friend-cursor-position',
+  FRIEND_DISCONNECTED: 'friend-disconnected',
 } as const;
 
 @WebSocketGateway({
@@ -88,6 +89,7 @@ export class StateGateway
 
       const user = await this.authService.syncUserFromToken(client.data.user);
       this.userSocketMap.set(user.id, client.id);
+      client.data.userId = user.id;
 
       // Initialize friends cache
       const friends = await this.friendsService.getFriends(user.id);
@@ -110,10 +112,34 @@ export class StateGateway
     const user = client.data.user;
 
     if (user) {
-      for (const [userId, socketId] of this.userSocketMap.entries()) {
-        if (socketId === client.id) {
+      const userId = client.data.userId;
+
+      if (userId) {
+        // Check if this socket is still the active one for the user
+        const currentSocketId = this.userSocketMap.get(userId);
+        if (currentSocketId === client.id) {
           this.userSocketMap.delete(userId);
-          break;
+
+          // Notify friends that this user has disconnected
+          const friends = client.data.friends;
+          if (friends) {
+            for (const friendId of friends) {
+              const friendSocketId = this.userSocketMap.get(friendId);
+              if (friendSocketId) {
+                this.io.to(friendSocketId).emit(WS_EVENT.FRIEND_DISCONNECTED, {
+                  userId: userId,
+                });
+              }
+            }
+          }
+        }
+      } else {
+        // Fallback for cases where client.data.userId might not be set
+        for (const [uid, socketId] of this.userSocketMap.entries()) {
+          if (socketId === client.id) {
+            this.userSocketMap.delete(uid);
+            break;
+          }
         }
       }
     }
@@ -121,6 +147,10 @@ export class StateGateway
     this.logger.log(
       `Client id: ${client.id} disconnected (user: ${user?.keycloakSub || 'unknown'})`,
     );
+  }
+
+  isUserOnline(userId: string): boolean {
+    return this.userSocketMap.has(userId);
   }
 
   @SubscribeMessage(WS_EVENT.CURSOR_REPORT_POSITION)
@@ -134,20 +164,7 @@ export class StateGateway
       throw new WsException('Unauthorized');
     }
 
-    // Get the user ID from the userSocketMap (keycloakSub -> userId map is handled implicitly by connection logic but let's be safe and get it from map iteration or better store userId in client.data)
-    // Actually we stored user.id -> client.id in userSocketMap. But we don't have direct access to user.id from client.data.user (it has keycloakSub).
-    // Let's improve this by finding the userId. The user is already synced in handleConnection.
-    // However, for efficiency, let's reverse lookup or better yet, assume we can get userId.
-    // In handleConnection we did: const user = await this.authService.syncUserFromToken(client.data.user); this.userSocketMap.set(user.id, client.id);
-    // So we know the user.id is in the map.
-
-    let currentUserId: string | undefined;
-    for (const [uid, sid] of this.userSocketMap.entries()) {
-      if (sid === client.id) {
-        currentUserId = uid;
-        break;
-      }
-    }
+    const currentUserId = client.data.userId;
 
     if (!currentUserId) {
       this.logger.warn(`Could not find user ID for client ${client.id}`);
@@ -164,9 +181,6 @@ export class StateGateway
             userId: currentUserId,
             position: data,
           };
-          this.logger.debug(
-            `Sending friend cursor position to user ${friendId}: ${JSON.stringify(payload, null, 0)}`,
-          );
           this.io
             .to(friendSocketId)
             .emit(WS_EVENT.FRIEND_CURSOR_POSITION, payload);
