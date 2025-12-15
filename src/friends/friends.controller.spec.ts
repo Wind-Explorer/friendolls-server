@@ -82,6 +82,7 @@ describe('FriendsController', () => {
 
   const mockAuthService = {
     syncUserFromToken: jest.fn(),
+    ensureUserExists: jest.fn(),
   };
 
   const mockStateGateway = {
@@ -106,6 +107,7 @@ describe('FriendsController', () => {
 
     jest.clearAllMocks();
     mockAuthService.syncUserFromToken.mockResolvedValue(mockUser1);
+    mockAuthService.ensureUserExists.mockResolvedValue(mockUser1);
   });
 
   it('should be defined', () => {

@@ -24,6 +24,11 @@ import { User } from '../users/users.entity';
  *
  * For explicit profile sync (webhooks, admin operations), use:
  * - UsersService.syncProfileFromToken() - force sync regardless of changes
+ *
+ * ## Usage Guidelines
+ *
+ * - Use `syncUserFromToken()` for actual login events (WebSocket connections, /users/me)
+ * - Use `ensureUserExists()` for regular API calls that just need the user record
  */
 @Injectable()
 export class AuthService {
@@ -49,6 +54,49 @@ export class AuthService {
 
     // Use createFromToken which handles upsert atomically
     // This prevents race conditions when multiple requests arrive simultaneously
+    const user = await this.usersService.createFromToken({
+      keycloakSub,
+      email: email || '',
+      name: name || username || 'Unknown User',
+      username,
+      picture,
+      roles,
+    });
+
+    return user;
+  }
+
+  /**
+   * Ensures a user exists in the local database without updating profile data.
+   * This is optimized for regular API calls that need the user record but don't
+   * need to sync profile data from Keycloak on every request.
+   *
+   * - For new users: Creates with full profile data
+   * - For existing users: Returns existing record WITHOUT updating
+   *
+   * Use this for most API endpoints. Only use syncUserFromToken() for actual
+   * login events (WebSocket connections, /users/me endpoint).
+   *
+   * @param authenticatedUser - User data extracted from JWT token
+   * @returns The user entity
+   */
+  async ensureUserExists(authenticatedUser: AuthenticatedUser): Promise<User> {
+    const { keycloakSub, email, name, username, picture, roles } =
+      authenticatedUser;
+
+    // Check if user exists
+    const existingUser = await this.usersService.findByKeycloakSub(keycloakSub);
+
+    if (existingUser) {
+      // User exists - return without updating
+      return existingUser;
+    }
+
+    // New user - create with full profile data
+    this.logger.log(
+      `Creating new user from token: ${keycloakSub} (via ensureUserExists)`,
+    );
+
     const user = await this.usersService.createFromToken({
       keycloakSub,
       email: email || '',

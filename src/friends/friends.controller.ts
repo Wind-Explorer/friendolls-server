@@ -78,7 +78,7 @@ export class FriendsController {
     @Query() searchDto: SearchUsersDto,
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<UserBasicDto[]> {
-    const user = await this.authService.syncUserFromToken(authUser);
+    const user = await this.authService.ensureUserExists(authUser);
 
     this.logger.debug(
       `Searching users with username: ${searchDto.username || 'all'}`,
@@ -126,7 +126,7 @@ export class FriendsController {
     @Body() sendRequestDto: SendFriendRequestDto,
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<FriendRequestResponseDto> {
-    const user = await this.authService.syncUserFromToken(authUser);
+    const user = await this.authService.ensureUserExists(authUser);
 
     this.logger.log(
       `User ${user.id} sending friend request to ${sendRequestDto.receiverId}`,
@@ -161,7 +161,7 @@ export class FriendsController {
   async getReceivedRequests(
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<FriendRequestResponseDto[]> {
-    const user = await this.authService.syncUserFromToken(authUser);
+    const user = await this.authService.ensureUserExists(authUser);
 
     this.logger.debug(`Getting received friend requests for user ${user.id}`);
 
@@ -188,7 +188,7 @@ export class FriendsController {
   async getSentRequests(
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<FriendRequestResponseDto[]> {
-    const user = await this.authService.syncUserFromToken(authUser);
+    const user = await this.authService.ensureUserExists(authUser);
 
     this.logger.debug(`Getting sent friend requests for user ${user.id}`);
 
@@ -227,7 +227,7 @@ export class FriendsController {
     @Param('id') requestId: string,
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<FriendRequestResponseDto> {
-    const user = await this.authService.syncUserFromToken(authUser);
+    const user = await this.authService.ensureUserExists(authUser);
 
     this.logger.log(`User ${user.id} accepting friend request ${requestId}`);
 
@@ -274,7 +274,7 @@ export class FriendsController {
     @Param('id') requestId: string,
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<FriendRequestResponseDto> {
-    const user = await this.authService.syncUserFromToken(authUser);
+    const user = await this.authService.ensureUserExists(authUser);
 
     this.logger.log(`User ${user.id} denying friend request ${requestId}`);
 
@@ -307,7 +307,7 @@ export class FriendsController {
   async getFriends(
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<FriendshipResponseDto[]> {
-    const user = await this.authService.syncUserFromToken(authUser);
+    const user = await this.authService.ensureUserExists(authUser);
 
     this.logger.debug(`Getting friends list for user ${user.id}`);
 
@@ -355,7 +355,7 @@ export class FriendsController {
     @Param('friendId') friendId: string,
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<void> {
-    const user = await this.authService.syncUserFromToken(authUser);
+    const user = await this.authService.ensureUserExists(authUser);
 
     this.logger.log(`User ${user.id} unfriending user ${friendId}`);
 

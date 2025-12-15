@@ -24,8 +24,11 @@ describe('UsersController', () => {
     findByKeycloakSub: mockFindByKeycloakSub,
   };
 
+  const mockEnsureUserExists = jest.fn();
+
   const mockAuthService = {
     syncUserFromToken: mockSyncUserFromToken,
+    ensureUserExists: mockEnsureUserExists,
   };
 
   const mockAuthUser: AuthenticatedUser = {
@@ -90,7 +93,7 @@ describe('UsersController', () => {
       const updateDto: UpdateUserDto = { name: 'Updated Name' };
       const updatedUser = { ...mockUser, name: 'Updated Name' };
 
-      mockSyncUserFromToken.mockResolvedValue(mockUser);
+      mockEnsureUserExists.mockResolvedValue(mockUser);
       mockUpdate.mockResolvedValue(updatedUser);
 
       const result = await controller.updateCurrentUser(
@@ -99,7 +102,7 @@ describe('UsersController', () => {
       );
 
       expect(result).toBe(updatedUser);
-      expect(mockSyncUserFromToken).toHaveBeenCalledWith(mockAuthUser);
+      expect(mockEnsureUserExists).toHaveBeenCalledWith(mockAuthUser);
       expect(mockUpdate).toHaveBeenCalledWith(
         mockUser.id,
         updateDto,
@@ -185,12 +188,12 @@ describe('UsersController', () => {
 
   describe('deleteCurrentUser', () => {
     it('should delete the current user account', async () => {
-      mockSyncUserFromToken.mockResolvedValue(mockUser);
+      mockEnsureUserExists.mockResolvedValue(mockUser);
       mockDelete.mockResolvedValue(undefined);
 
       await controller.deleteCurrentUser(mockAuthUser);
 
-      expect(mockSyncUserFromToken).toHaveBeenCalledWith(mockAuthUser);
+      expect(mockEnsureUserExists).toHaveBeenCalledWith(mockAuthUser);
       expect(mockDelete).toHaveBeenCalledWith(
         mockUser.id,
         mockAuthUser.keycloakSub,

@@ -51,7 +51,8 @@ export class UsersController {
 
   /**
    * Get current authenticated user's profile.
-   * This endpoint syncs the user from Keycloak token on each request.
+   * This endpoint syncs the user from Keycloak token to ensure profile data
+   * is up-to-date when explicitly requested by the user.
    */
   @Get('me')
   @ApiOperation({
@@ -72,7 +73,8 @@ export class UsersController {
   ): Promise<User> {
     this.logger.debug(`Get current user: ${authUser.keycloakSub}`);
 
-    // Sync user from token (creates if doesn't exist, updates if exists)
+    // Sync user from token - this is one of the few endpoints that should
+    // actively sync profile data, as it's an explicit request for user info
     const user = await this.authService.syncUserFromToken(authUser);
 
     return user;
@@ -106,7 +108,7 @@ export class UsersController {
     this.logger.log(`Update current user: ${authUser.keycloakSub}`);
 
     // First ensure user exists in our system
-    const user = await this.authService.syncUserFromToken(authUser);
+    const user = await this.authService.ensureUserExists(authUser);
 
     // Update the user's profile
     return this.usersService.update(
@@ -221,7 +223,7 @@ export class UsersController {
     this.logger.log(`Delete current user: ${authUser.keycloakSub}`);
 
     // First ensure user exists in our system
-    const user = await this.authService.syncUserFromToken(authUser);
+    const user = await this.authService.ensureUserExists(authUser);
 
     // Delete the user's account
     await this.usersService.delete(user.id, authUser.keycloakSub);
