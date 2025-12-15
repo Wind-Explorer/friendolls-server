@@ -71,6 +71,7 @@ describe('FriendsService', () => {
       findMany: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
+      delete: jest.fn(),
     },
     friendship: {
       create: jest.fn(),
@@ -247,6 +248,7 @@ describe('FriendsService', () => {
       const acceptedRequest = {
         ...mockFriendRequest,
         status: FriendRequestStatus.ACCEPTED,
+        updatedAt: expect.any(Date),
       };
       mockPrismaService.friendRequest.findUnique.mockResolvedValue(
         mockFriendRequest,
@@ -303,22 +305,20 @@ describe('FriendsService', () => {
       const deniedRequest = {
         ...mockFriendRequest,
         status: FriendRequestStatus.DENIED,
+        updatedAt: expect.any(Date),
       };
       mockPrismaService.friendRequest.findUnique.mockResolvedValue(
         mockFriendRequest,
       );
-      mockPrismaService.friendRequest.update.mockResolvedValue(deniedRequest);
+      mockPrismaService.friendRequest.delete.mockResolvedValue(
+        mockFriendRequest,
+      );
 
       const result = await service.denyFriendRequest('request-1', 'user-2');
 
       expect(result).toEqual(deniedRequest);
-      expect(mockPrismaService.friendRequest.update).toHaveBeenCalledWith({
+      expect(mockPrismaService.friendRequest.delete).toHaveBeenCalledWith({
         where: { id: 'request-1' },
-        data: { status: FriendRequestStatus.DENIED },
-        include: {
-          sender: true,
-          receiver: true,
-        },
       });
     });
 

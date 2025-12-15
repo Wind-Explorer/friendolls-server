@@ -43,25 +43,31 @@ export class FriendsService {
     const existingRequest = await this.prisma.friendRequest.findFirst({
       where: {
         OR: [
-          { senderId, receiverId, status: FriendRequestStatus.PENDING },
+          { senderId, receiverId },
           {
             senderId: receiverId,
             receiverId: senderId,
-            status: FriendRequestStatus.PENDING,
           },
         ],
       },
     });
 
     if (existingRequest) {
-      if (existingRequest.senderId === senderId) {
-        throw new ConflictException(
-          'You already sent a friend request to this user',
-        );
+      if (existingRequest.status === FriendRequestStatus.PENDING) {
+        if (existingRequest.senderId === senderId) {
+          throw new ConflictException(
+            'You already sent a friend request to this user',
+          );
+        } else {
+          throw new ConflictException(
+            'This user already sent you a friend request',
+          );
+        }
       } else {
-        throw new ConflictException(
-          'This user already sent you a friend request',
-        );
+        // If there's an existing request that is not pending (accepted or denied), delete it so a new one can be created
+        await this.prisma.friendRequest.delete({
+          where: { id: existingRequest.id },
+        });
       }
     }
 
@@ -148,14 +154,9 @@ export class FriendsService {
       );
     }
 
-    const [updatedRequest] = await this.prisma.$transaction([
-      this.prisma.friendRequest.update({
+    await this.prisma.$transaction([
+      this.prisma.friendRequest.delete({
         where: { id: requestId },
-        data: { status: FriendRequestStatus.ACCEPTED },
-        include: {
-          sender: true,
-          receiver: true,
-        },
       }),
       this.prisma.friendship.create({
         data: {
@@ -171,11 +172,18 @@ export class FriendsService {
       }),
     ]);
 
+    // Since we deleted the request, we return the original request object but with status accepted
+    const result = {
+      ...friendRequest,
+      status: FriendRequestStatus.ACCEPTED,
+      updatedAt: new Date(),
+    };
+
     this.logger.log(
       `Friend request ${requestId} accepted. Users ${friendRequest.senderId} and ${friendRequest.receiverId} are now friends`,
     );
 
-    return updatedRequest;
+    return result;
   }
 
   async denyFriendRequest(
@@ -206,18 +214,20 @@ export class FriendsService {
       );
     }
 
-    const updatedRequest = await this.prisma.friendRequest.update({
+    await this.prisma.friendRequest.delete({
       where: { id: requestId },
-      data: { status: FriendRequestStatus.DENIED },
-      include: {
-        sender: true,
-        receiver: true,
-      },
     });
+
+    // Since we deleted the request, we return the original request object but with status denied
+    const result = {
+      ...friendRequest,
+      status: FriendRequestStatus.DENIED,
+      updatedAt: new Date(),
+    };
 
     this.logger.log(`Friend request ${requestId} denied by user ${userId}`);
 
-    return updatedRequest;
+    return result;
   }
 
   async getFriends(userId: string) {
