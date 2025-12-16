@@ -4,12 +4,16 @@ import { AuthenticatedSocket } from '../../types/socket';
 import { AuthService } from '../../auth/auth.service';
 import { JwtVerificationService } from '../../auth/services/jwt-verification.service';
 
+import { FriendsService } from '../../friends/friends.service';
+
 interface MockSocket extends Partial<AuthenticatedSocket> {
   id: string;
   data: {
     user?: {
       keycloakSub: string;
     };
+    userId?: string;
+    friends?: Set<string>;
   };
   handshake?: any;
   disconnect?: jest.Mock;
@@ -20,9 +24,13 @@ describe('StateGateway', () => {
   let mockLoggerLog: jest.SpyInstance;
   let mockLoggerDebug: jest.SpyInstance;
   let mockLoggerWarn: jest.SpyInstance;
-  let mockServer: { sockets: { sockets: { size: number } } };
+  let mockServer: {
+    sockets: { sockets: { size: number } };
+    to: jest.Mock;
+  };
   let mockAuthService: Partial<AuthService>;
   let mockJwtVerificationService: Partial<JwtVerificationService>;
+  let mockFriendsService: Partial<FriendsService>;
 
   beforeEach(async () => {
     mockServer = {
@@ -31,7 +39,10 @@ describe('StateGateway', () => {
           size: 5,
         },
       },
-    };
+      to: jest.fn().mockReturnValue({
+        emit: jest.fn(),
+      }),
+    } as any;
 
     mockAuthService = {
       syncUserFromToken: jest.fn().mockResolvedValue({
@@ -48,6 +59,10 @@ describe('StateGateway', () => {
       }),
     };
 
+    mockFriendsService = {
+      getFriends: jest.fn().mockResolvedValue([]),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         StateGateway,
@@ -56,6 +71,7 @@ describe('StateGateway', () => {
           provide: JwtVerificationService,
           useValue: mockJwtVerificationService,
         },
+        { provide: FriendsService, useValue: mockFriendsService },
       ],
     }).compile();
 
@@ -174,24 +190,82 @@ describe('StateGateway', () => {
   });
 
   describe('handleCursorReportPosition', () => {
-    it('should log message received from authenticated client', () => {
+    it('should emit cursor position to connected friends', () => {
       const mockClient: MockSocket = {
         id: 'client1',
-        data: { user: { keycloakSub: 'test-sub' } },
+        data: {
+          user: { keycloakSub: 'test-sub' },
+          userId: 'user-1',
+          friends: new Set(['friend-1']),
+        },
       };
-      const data = { x: 100, y: 200 };
+
+      // Setup the userSocketMap to simulate a connected friend
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      (gateway as any).userSocketMap.set('friend-1', 'friend-socket-id');
+
+      const data = { x: 100, y: 200, isDrawing: false };
 
       gateway.handleCursorReportPosition(
         mockClient as unknown as AuthenticatedSocket,
         data,
       );
 
-      expect(mockLoggerLog).toHaveBeenCalledWith(
-        `Message received from client id: ${mockClient.id} (user: test-sub)`,
+      // Verify that the message was emitted to the friend
+      expect(mockServer.to).toHaveBeenCalledWith('friend-socket-id');
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+      const emitMock = mockServer.to().emit as jest.Mock;
+      expect(emitMock).toHaveBeenCalledWith('friend-cursor-position', {
+        userId: 'user-1',
+        position: data,
+      });
+    });
+
+    it('should not emit when no friends are online', () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: {
+          user: { keycloakSub: 'test-sub' },
+          userId: 'user-1',
+          friends: new Set(['friend-1']),
+        },
+      };
+
+      // Don't set up userSocketMap - friend is not online
+      const data = { x: 100, y: 200, isDrawing: false };
+
+      gateway.handleCursorReportPosition(
+        mockClient as unknown as AuthenticatedSocket,
+        data,
       );
-      expect(mockLoggerDebug).toHaveBeenCalledWith(
-        `Payload: ${JSON.stringify(data, null, 0)}`,
+
+      // Verify that no message was emitted
+      expect(mockServer.to).not.toHaveBeenCalled();
+    });
+
+    it('should log warning when userId is missing', () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: {
+          user: { keycloakSub: 'test-sub' },
+          // userId is missing
+          friends: new Set(['friend-1']),
+        },
+      };
+
+      const data = { x: 100, y: 200, isDrawing: false };
+
+      gateway.handleCursorReportPosition(
+        mockClient as unknown as AuthenticatedSocket,
+        data,
       );
+
+      // Verify that a warning was logged
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        `Could not find user ID for client ${mockClient.id}`,
+      );
+      // Verify that no message was emitted
+      expect(mockServer.to).not.toHaveBeenCalled();
     });
 
     it('should throw exception when client is not authenticated', () => {
