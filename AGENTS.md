@@ -1,4 +1,10 @@
-# Friendolls Server Agent Guidelines
+# Friendolls
+
+Passive social app connecting peers through mouse cursor interactions in the form of desktop pets.
+
+# friendolls-server
+
+Backend server for Friendolls.
 
 ## Commands
 
