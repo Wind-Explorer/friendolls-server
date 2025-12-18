@@ -1,10 +1,10 @@
+import { CursorPositionDto } from '../dto/cursor-position.dto';
 import { Test, TestingModule } from '@nestjs/testing';
 import { StateGateway } from './state.gateway';
 import { AuthenticatedSocket } from '../../types/socket';
 import { AuthService } from '../../auth/auth.service';
 import { JwtVerificationService } from '../../auth/services/jwt-verification.service';
-
-import { FriendsService } from '../../friends/friends.service';
+import { PrismaService } from '../../database/prisma.service';
 
 interface MockSocket extends Partial<AuthenticatedSocket> {
   id: string;
@@ -25,24 +25,25 @@ describe('StateGateway', () => {
   let mockLoggerDebug: jest.SpyInstance;
   let mockLoggerWarn: jest.SpyInstance;
   let mockServer: {
-    sockets: { sockets: { size: number } };
+    sockets: { sockets: { size: number; get: jest.Mock } };
     to: jest.Mock;
   };
   let mockAuthService: Partial<AuthService>;
   let mockJwtVerificationService: Partial<JwtVerificationService>;
-  let mockFriendsService: Partial<FriendsService>;
+  let mockPrismaService: Partial<PrismaService>;
 
   beforeEach(async () => {
     mockServer = {
       sockets: {
         sockets: {
           size: 5,
+          get: jest.fn(),
         },
       },
       to: jest.fn().mockReturnValue({
         emit: jest.fn(),
       }),
-    } as any;
+    };
 
     mockAuthService = {
       syncUserFromToken: jest.fn().mockResolvedValue({
@@ -59,8 +60,10 @@ describe('StateGateway', () => {
       }),
     };
 
-    mockFriendsService = {
-      getFriends: jest.fn().mockResolvedValue([]),
+    mockPrismaService = {
+      friendship: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -71,7 +74,7 @@ describe('StateGateway', () => {
           provide: JwtVerificationService,
           useValue: mockJwtVerificationService,
         },
-        { provide: FriendsService, useValue: mockFriendsService },
+        { provide: PrismaService, useValue: mockPrismaService },
       ],
     }).compile();
 
@@ -204,7 +207,7 @@ describe('StateGateway', () => {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
       (gateway as any).userSocketMap.set('friend-1', 'friend-socket-id');
 
-      const data = { x: 100, y: 200, isDrawing: false };
+      const data: CursorPositionDto = { x: 100, y: 200 };
 
       gateway.handleCursorReportPosition(
         mockClient as unknown as AuthenticatedSocket,
@@ -232,7 +235,7 @@ describe('StateGateway', () => {
       };
 
       // Don't set up userSocketMap - friend is not online
-      const data = { x: 100, y: 200, isDrawing: false };
+      const data: CursorPositionDto = { x: 100, y: 200 };
 
       gateway.handleCursorReportPosition(
         mockClient as unknown as AuthenticatedSocket,
@@ -253,7 +256,7 @@ describe('StateGateway', () => {
         },
       };
 
-      const data = { x: 100, y: 200, isDrawing: false };
+      const data: CursorPositionDto = { x: 100, y: 200 };
 
       gateway.handleCursorReportPosition(
         mockClient as unknown as AuthenticatedSocket,
@@ -273,7 +276,7 @@ describe('StateGateway', () => {
         id: 'client1',
         data: {},
       };
-      const data = { x: 100, y: 200 };
+      const data: CursorPositionDto = { x: 100, y: 200 };
 
       expect(() => {
         gateway.handleCursorReportPosition(

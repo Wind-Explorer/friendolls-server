@@ -19,6 +19,7 @@ import {
   ApiUnauthorizedResponse,
   ApiQuery,
 } from '@nestjs/swagger';
+import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { User, FriendRequest } from '@prisma/client';
 import { FriendsService } from './friends.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -40,7 +41,6 @@ type FriendRequestWithRelations = FriendRequest & {
   receiver: User;
 };
 import { UsersService } from '../users/users.service';
-import { StateGateway } from '../ws/state/state.gateway';
 
 @ApiTags('friends')
 @Controller('friends')
@@ -53,10 +53,11 @@ export class FriendsController {
     private readonly friendsService: FriendsService,
     private readonly usersService: UsersService,
     private readonly authService: AuthService,
-    private readonly stateGateway: StateGateway,
   ) {}
 
   @Get('search')
+  @UseGuards(ThrottlerGuard)
+  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary: 'Search users by username',
     description: 'Search for users by username to send friend requests',
@@ -135,11 +136,6 @@ export class FriendsController {
     const friendRequest = await this.friendsService.sendFriendRequest(
       user.id,
       sendRequestDto.receiverId,
-    );
-
-    this.stateGateway.emitFriendRequestReceived(
-      sendRequestDto.receiverId,
-      friendRequest,
     );
 
     return this.mapFriendRequestToDto(friendRequest);
@@ -236,11 +232,6 @@ export class FriendsController {
       user.id,
     );
 
-    this.stateGateway.emitFriendRequestAccepted(
-      friendRequest.senderId,
-      friendRequest,
-    );
-
     return this.mapFriendRequestToDto(friendRequest);
   }
 
@@ -281,11 +272,6 @@ export class FriendsController {
     const friendRequest = await this.friendsService.denyFriendRequest(
       requestId,
       user.id,
-    );
-
-    this.stateGateway.emitFriendRequestDenied(
-      friendRequest.senderId,
-      friendRequest,
     );
 
     return this.mapFriendRequestToDto(friendRequest);
@@ -360,8 +346,6 @@ export class FriendsController {
     this.logger.log(`User ${user.id} unfriending user ${friendId}`);
 
     await this.friendsService.unfriend(user.id, friendId);
-
-    this.stateGateway.emitUnfriended(friendId, user.id);
   }
 
   private mapFriendRequestToDto(

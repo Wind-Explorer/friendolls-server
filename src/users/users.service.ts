@@ -59,6 +59,58 @@ export class UsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
+   * Finds a user or creates one if they don't exist.
+   * Optimized to minimize database operations:
+   * - If user exists: Returns immediately (1 read, 0 writes)
+   * - If user missing: Creates user (1 read, 1 write)
+   *
+   * Unlike createFromToken, this method does NOT update lastLoginAt for existing users.
+   *
+   * @param createDto - User data
+   * @returns The user entity
+   */
+  async findOrCreate(createDto: CreateUserFromTokenDto): Promise<User> {
+    // 1. Try to find the user (Read)
+    const existingUser = await this.prisma.user.findUnique({
+      where: { keycloakSub: createDto.keycloakSub },
+    });
+
+    // 2. If found, return immediately without update
+    if (existingUser) {
+      return existingUser;
+    }
+
+    // 3. If not found, create (Write)
+    // We handle creation directly here to avoid a second read that createFromToken would do
+    const roles = createDto.roles || [];
+    const now = new Date();
+
+    this.logger.log(`Creating new user from token: ${createDto.keycloakSub}`);
+
+    // Use upsert to handle race conditions safely
+    return await this.prisma.user.upsert({
+      where: { keycloakSub: createDto.keycloakSub },
+      update: {
+        email: createDto.email,
+        name: createDto.name,
+        username: createDto.username,
+        picture: createDto.picture,
+        roles,
+        lastLoginAt: now,
+      },
+      create: {
+        keycloakSub: createDto.keycloakSub,
+        email: createDto.email,
+        name: createDto.name,
+        username: createDto.username,
+        picture: createDto.picture,
+        roles,
+        lastLoginAt: now,
+      },
+    });
+  }
+
+  /**
    * Creates a new user or syncs/tracks login for existing users.
    * This method is called automatically during authentication flow.
    *

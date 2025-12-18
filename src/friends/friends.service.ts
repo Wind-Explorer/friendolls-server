@@ -5,8 +5,16 @@ import {
   Logger,
   ConflictException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../database/prisma.service';
 import { User, FriendRequest, FriendRequestStatus } from '@prisma/client';
+import {
+  FriendEvents,
+  FriendRequestReceivedEvent,
+  FriendRequestAcceptedEvent,
+  FriendRequestDeniedEvent,
+  UnfriendedEvent,
+} from './events/friend.events';
 
 export type FriendRequestWithRelations = FriendRequest & {
   sender: User;
@@ -17,7 +25,10 @@ export type FriendRequestWithRelations = FriendRequest & {
 export class FriendsService {
   private readonly logger = new Logger(FriendsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   async sendFriendRequest(
     senderId: string,
@@ -27,65 +38,81 @@ export class FriendsService {
       throw new BadRequestException('Cannot send friend request to yourself');
     }
 
-    const receiver = await this.prisma.user.findUnique({
-      where: { id: receiverId },
-    });
+    const friendRequest = await this.prisma.$transaction(async (tx) => {
+      const receiver = await tx.user.findUnique({
+        where: { id: receiverId },
+      });
 
-    if (!receiver) {
-      throw new NotFoundException('User not found');
-    }
-
-    const existingFriendship = await this.areFriends(senderId, receiverId);
-    if (existingFriendship) {
-      throw new ConflictException('You are already friends with this user');
-    }
-
-    const existingRequest = await this.prisma.friendRequest.findFirst({
-      where: {
-        OR: [
-          { senderId, receiverId },
-          {
-            senderId: receiverId,
-            receiverId: senderId,
-          },
-        ],
-      },
-    });
-
-    if (existingRequest) {
-      if (existingRequest.status === FriendRequestStatus.PENDING) {
-        if (existingRequest.senderId === senderId) {
-          throw new ConflictException(
-            'You already sent a friend request to this user',
-          );
-        } else {
-          throw new ConflictException(
-            'This user already sent you a friend request',
-          );
-        }
-      } else {
-        // If there's an existing request that is not pending (accepted or denied), delete it so a new one can be created
-        await this.prisma.friendRequest.delete({
-          where: { id: existingRequest.id },
-        });
+      if (!receiver) {
+        throw new NotFoundException('User not found');
       }
-    }
 
-    const friendRequest = await this.prisma.friendRequest.create({
-      data: {
-        senderId,
-        receiverId,
-        status: FriendRequestStatus.PENDING,
-      },
-      include: {
-        sender: true,
-        receiver: true,
-      },
+      // Check for existing friendship using the transaction client
+      const existingFriendship = await tx.friendship.findFirst({
+        where: {
+          userId: senderId,
+          friendId: receiverId,
+        },
+      });
+
+      if (existingFriendship) {
+        throw new ConflictException('You are already friends with this user');
+      }
+
+      const existingRequest = await tx.friendRequest.findFirst({
+        where: {
+          OR: [
+            { senderId, receiverId },
+            {
+              senderId: receiverId,
+              receiverId: senderId,
+            },
+          ],
+        },
+      });
+
+      if (existingRequest) {
+        if (existingRequest.status === FriendRequestStatus.PENDING) {
+          if (existingRequest.senderId === senderId) {
+            throw new ConflictException(
+              'You already sent a friend request to this user',
+            );
+          } else {
+            throw new ConflictException(
+              'This user already sent you a friend request',
+            );
+          }
+        } else {
+          // If there's an existing request that is not pending (accepted or denied), delete it so a new one can be created
+          await tx.friendRequest.delete({
+            where: { id: existingRequest.id },
+          });
+        }
+      }
+
+      return await tx.friendRequest.create({
+        data: {
+          senderId,
+          receiverId,
+          status: FriendRequestStatus.PENDING,
+        },
+        include: {
+          sender: true,
+          receiver: true,
+        },
+      });
     });
 
     this.logger.log(
       `Friend request sent from ${senderId} to ${receiverId} (ID: ${friendRequest.id})`,
     );
+
+    // Emit event
+    const event: FriendRequestReceivedEvent = {
+      userId: receiverId,
+      friendRequest,
+    };
+    this.eventEmitter.emit(FriendEvents.REQUEST_RECEIVED, event);
 
     return friendRequest;
   }
@@ -183,6 +210,13 @@ export class FriendsService {
       `Friend request ${requestId} accepted. Users ${friendRequest.senderId} and ${friendRequest.receiverId} are now friends`,
     );
 
+    // Emit event
+    const event: FriendRequestAcceptedEvent = {
+      userId: friendRequest.senderId,
+      friendRequest: result,
+    };
+    this.eventEmitter.emit(FriendEvents.REQUEST_ACCEPTED, event);
+
     return result;
   }
 
@@ -227,6 +261,13 @@ export class FriendsService {
 
     this.logger.log(`Friend request ${requestId} denied by user ${userId}`);
 
+    // Emit event
+    const event: FriendRequestDeniedEvent = {
+      userId: friendRequest.senderId,
+      friendRequest: result,
+    };
+    this.eventEmitter.emit(FriendEvents.REQUEST_DENIED, event);
+
     return result;
   }
 
@@ -268,6 +309,13 @@ export class FriendsService {
     });
 
     this.logger.log(`User ${userId} unfriended user ${friendId}`);
+
+    // Emit event
+    const event: UnfriendedEvent = {
+      userId: friendId,
+      friendId: userId,
+    };
+    this.eventEmitter.emit(FriendEvents.UNFRIENDED, event);
   }
 
   async areFriends(userId: string, friendId: string): Promise<boolean> {

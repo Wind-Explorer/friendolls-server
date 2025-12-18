@@ -72,7 +72,7 @@ export class AuthService {
    * need to sync profile data from Keycloak on every request.
    *
    * - For new users: Creates with full profile data
-   * - For existing users: Returns existing record WITHOUT updating
+   * - For existing users: Returns existing record WITHOUT updating (read-only)
    *
    * Use this for most API endpoints. Only use syncUserFromToken() for actual
    * login events (WebSocket connections, /users/me endpoint).
@@ -84,20 +84,10 @@ export class AuthService {
     const { keycloakSub, email, name, username, picture, roles } =
       authenticatedUser;
 
-    // Check if user exists
-    const existingUser = await this.usersService.findByKeycloakSub(keycloakSub);
-
-    if (existingUser) {
-      // User exists - return without updating
-      return existingUser;
-    }
-
-    // New user - create with full profile data
-    this.logger.log(
-      `Creating new user from token: ${keycloakSub} (via ensureUserExists)`,
-    );
-
-    const user = await this.usersService.createFromToken({
+    // Use optimized findOrCreate method
+    // This returns existing users immediately (1 read)
+    // And creates new users if needed (1 read + 1 write)
+    return await this.usersService.findOrCreate({
       keycloakSub,
       email: email || '',
       name: name || username || 'Unknown User',
@@ -105,8 +95,6 @@ export class AuthService {
       picture,
       roles,
     });
-
-    return user;
   }
 
   /**

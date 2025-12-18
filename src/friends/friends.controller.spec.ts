@@ -1,9 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { FriendsController } from './friends.controller';
 import { FriendsService } from './friends.service';
 import { UsersService } from '../users/users.service';
 import { AuthService } from '../auth/auth.service';
-import { StateGateway } from '../ws/state/state.gateway';
+// StateGateway removed
 
 enum FriendRequestStatus {
   PENDING = 'PENDING',
@@ -85,21 +86,21 @@ describe('FriendsController', () => {
     ensureUserExists: jest.fn(),
   };
 
-  const mockStateGateway = {
-    emitFriendRequestReceived: jest.fn(),
-    emitFriendRequestAccepted: jest.fn(),
-    emitFriendRequestDenied: jest.fn(),
-    emitUnfriended: jest.fn(),
-  };
-
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
+      imports: [
+        ThrottlerModule.forRoot([
+          {
+            ttl: 60000,
+            limit: 10,
+          },
+        ]),
+      ],
       controllers: [FriendsController],
       providers: [
         { provide: FriendsService, useValue: mockFriendsService },
         { provide: UsersService, useValue: mockUsersService },
         { provide: AuthService, useValue: mockAuthService },
-        { provide: StateGateway, useValue: mockStateGateway },
       ],
     }).compile();
 
@@ -140,7 +141,7 @@ describe('FriendsController', () => {
   });
 
   describe('sendFriendRequest', () => {
-    it('should send friend request and emit WebSocket event', async () => {
+    it('should send friend request', async () => {
       mockFriendsService.sendFriendRequest.mockResolvedValue(mockFriendRequest);
 
       const result = await controller.sendFriendRequest(
@@ -169,10 +170,6 @@ describe('FriendsController', () => {
       expect(mockFriendsService.sendFriendRequest).toHaveBeenCalledWith(
         'user-1',
         'user-2',
-      );
-      expect(mockStateGateway.emitFriendRequestReceived).toHaveBeenCalledWith(
-        'user-2',
-        mockFriendRequest,
       );
     });
   });
@@ -210,7 +207,7 @@ describe('FriendsController', () => {
   });
 
   describe('acceptFriendRequest', () => {
-    it('should accept friend request and emit WebSocket event', async () => {
+    it('should accept friend request', async () => {
       const acceptedRequest = {
         ...mockFriendRequest,
         status: FriendRequestStatus.ACCEPTED,
@@ -227,15 +224,11 @@ describe('FriendsController', () => {
         'request-1',
         'user-1',
       );
-      expect(mockStateGateway.emitFriendRequestAccepted).toHaveBeenCalledWith(
-        'user-1',
-        acceptedRequest,
-      );
     });
   });
 
   describe('denyFriendRequest', () => {
-    it('should deny friend request and emit WebSocket event', async () => {
+    it('should deny friend request', async () => {
       const deniedRequest = {
         ...mockFriendRequest,
         status: FriendRequestStatus.DENIED,
@@ -251,10 +244,6 @@ describe('FriendsController', () => {
       expect(mockFriendsService.denyFriendRequest).toHaveBeenCalledWith(
         'request-1',
         'user-1',
-      );
-      expect(mockStateGateway.emitFriendRequestDenied).toHaveBeenCalledWith(
-        'user-1',
-        deniedRequest,
       );
     });
   });
@@ -282,7 +271,7 @@ describe('FriendsController', () => {
   });
 
   describe('unfriend', () => {
-    it('should unfriend user and emit WebSocket event', async () => {
+    it('should unfriend user', async () => {
       mockFriendsService.unfriend.mockResolvedValue(undefined);
 
       await controller.unfriend('user-2', mockAuthUser);
@@ -290,10 +279,6 @@ describe('FriendsController', () => {
       expect(mockFriendsService.unfriend).toHaveBeenCalledWith(
         'user-1',
         'user-2',
-      );
-      expect(mockStateGateway.emitUnfriended).toHaveBeenCalledWith(
-        'user-2',
-        'user-1',
       );
     });
   });

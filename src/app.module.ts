@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
@@ -49,6 +51,17 @@ function validateEnvironment(config: Record<string, any>): Record<string, any> {
       envFilePath: '.env',
       validate: validateEnvironment,
     }),
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => [
+        {
+          ttl: config.get('THROTTLE_TTL', 60000),
+          limit: config.get('THROTTLE_LIMIT', 10),
+        },
+      ],
+    }),
+    EventEmitterModule.forRoot(),
     DatabaseModule,
     UsersModule,
     AuthModule,
