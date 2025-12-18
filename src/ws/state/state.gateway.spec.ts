@@ -5,12 +5,17 @@ import { AuthenticatedSocket } from '../../types/socket';
 import { AuthService } from '../../auth/auth.service';
 import { JwtVerificationService } from '../../auth/services/jwt-verification.service';
 import { PrismaService } from '../../database/prisma.service';
+import { UserSocketService } from './user-socket.service';
 
 interface MockSocket extends Partial<AuthenticatedSocket> {
   id: string;
   data: {
     user?: {
       keycloakSub: string;
+      email?: string;
+      name?: string;
+      preferred_username?: string;
+      picture?: string;
     };
     userId?: string;
     friends?: Set<string>;
@@ -31,6 +36,7 @@ describe('StateGateway', () => {
   let mockAuthService: Partial<AuthService>;
   let mockJwtVerificationService: Partial<JwtVerificationService>;
   let mockPrismaService: Partial<PrismaService>;
+  let mockUserSocketService: Partial<UserSocketService>;
 
   beforeEach(async () => {
     mockServer = {
@@ -66,6 +72,14 @@ describe('StateGateway', () => {
       },
     };
 
+    mockUserSocketService = {
+      setSocket: jest.fn().mockResolvedValue(undefined),
+      removeSocket: jest.fn().mockResolvedValue(undefined),
+      getSocket: jest.fn().mockResolvedValue(null),
+      isUserOnline: jest.fn().mockResolvedValue(false),
+      getFriendsSockets: jest.fn().mockResolvedValue([]),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         StateGateway,
@@ -75,6 +89,7 @@ describe('StateGateway', () => {
           useValue: mockJwtVerificationService,
         },
         { provide: PrismaService, useValue: mockPrismaService },
+        { provide: UserSocketService, useValue: mockUserSocketService },
       ],
     }).compile();
 
@@ -130,6 +145,10 @@ describe('StateGateway', () => {
           keycloakSub: 'test-sub',
         }),
       );
+      expect(mockUserSocketService.setSocket).toHaveBeenCalledWith(
+        'user-id',
+        'client1',
+      );
       expect(mockLoggerLog).toHaveBeenCalledWith(
         `Client id: ${mockClient.id} connected (user: test-sub)`,
       );
@@ -165,35 +184,57 @@ describe('StateGateway', () => {
   });
 
   describe('handleDisconnect', () => {
-    it('should log client disconnection', () => {
+    it('should log client disconnection', async () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: { user: { keycloakSub: 'test-sub' } },
       };
 
-      gateway.handleDisconnect(mockClient as unknown as AuthenticatedSocket);
+      await gateway.handleDisconnect(mockClient as unknown as AuthenticatedSocket);
 
       expect(mockLoggerLog).toHaveBeenCalledWith(
         `Client id: ${mockClient.id} disconnected (user: test-sub)`,
       );
     });
 
-    it('should handle disconnection when no user data', () => {
+    it('should handle disconnection when no user data', async () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {},
       };
 
-      gateway.handleDisconnect(mockClient as unknown as AuthenticatedSocket);
+      await gateway.handleDisconnect(mockClient as unknown as AuthenticatedSocket);
 
       expect(mockLoggerLog).toHaveBeenCalledWith(
         `Client id: ${mockClient.id} disconnected (user: unknown)`,
       );
     });
+
+    it('should remove socket if it matches', async () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: { 
+          user: { keycloakSub: 'test-sub' },
+          userId: 'user-id',
+          friends: new Set(['friend-1']),
+        },
+      };
+
+      (mockUserSocketService.getSocket as jest.Mock).mockResolvedValue('client1');
+      (mockUserSocketService.getFriendsSockets as jest.Mock).mockResolvedValue([
+        { userId: 'friend-1', socketId: 'friend-socket-id' }
+      ]);
+
+      await gateway.handleDisconnect(mockClient as unknown as AuthenticatedSocket);
+
+      expect(mockUserSocketService.getSocket).toHaveBeenCalledWith('user-id');
+      expect(mockUserSocketService.removeSocket).toHaveBeenCalledWith('user-id');
+      expect(mockServer.to).toHaveBeenCalledWith('friend-socket-id');
+    });
   });
 
   describe('handleCursorReportPosition', () => {
-    it('should emit cursor position to connected friends', () => {
+    it('should emit cursor position to connected friends', async () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
@@ -203,13 +244,14 @@ describe('StateGateway', () => {
         },
       };
 
-      // Setup the userSocketMap to simulate a connected friend
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      (gateway as any).userSocketMap.set('friend-1', 'friend-socket-id');
+      // Mock getFriendsSockets to return the friend's socket
+      (mockUserSocketService.getFriendsSockets as jest.Mock).mockResolvedValue([
+        { userId: 'friend-1', socketId: 'friend-socket-id' },
+      ]);
 
       const data: CursorPositionDto = { x: 100, y: 200 };
 
-      gateway.handleCursorReportPosition(
+      await gateway.handleCursorReportPosition(
         mockClient as unknown as AuthenticatedSocket,
         data,
       );
@@ -224,7 +266,7 @@ describe('StateGateway', () => {
       });
     });
 
-    it('should not emit when no friends are online', () => {
+    it('should not emit when no friends are online', async () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
@@ -234,10 +276,12 @@ describe('StateGateway', () => {
         },
       };
 
-      // Don't set up userSocketMap - friend is not online
+      // Mock getFriendsSockets to return empty array
+      (mockUserSocketService.getFriendsSockets as jest.Mock).mockResolvedValue([]);
+
       const data: CursorPositionDto = { x: 100, y: 200 };
 
-      gateway.handleCursorReportPosition(
+      await gateway.handleCursorReportPosition(
         mockClient as unknown as AuthenticatedSocket,
         data,
       );
@@ -246,7 +290,7 @@ describe('StateGateway', () => {
       expect(mockServer.to).not.toHaveBeenCalled();
     });
 
-    it('should log warning when userId is missing', () => {
+    it('should log warning when userId is missing', async () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
@@ -258,7 +302,7 @@ describe('StateGateway', () => {
 
       const data: CursorPositionDto = { x: 100, y: 200 };
 
-      gateway.handleCursorReportPosition(
+      await gateway.handleCursorReportPosition(
         mockClient as unknown as AuthenticatedSocket,
         data,
       );
@@ -271,19 +315,19 @@ describe('StateGateway', () => {
       expect(mockServer.to).not.toHaveBeenCalled();
     });
 
-    it('should throw exception when client is not authenticated', () => {
+    it('should throw exception when client is not authenticated', async () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {},
       };
       const data: CursorPositionDto = { x: 100, y: 200 };
 
-      expect(() => {
+      await expect(
         gateway.handleCursorReportPosition(
           mockClient as unknown as AuthenticatedSocket,
           data,
-        );
-      }).toThrow('Unauthorized');
+        ),
+      ).rejects.toThrow('Unauthorized');
     });
   });
 });

@@ -7,6 +7,7 @@ import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './database/database.module';
+import { RedisModule } from './database/redis.module';
 import { WsModule } from './ws/ws.module';
 import { FriendsModule } from './friends/friends.module';
 
@@ -63,6 +64,7 @@ function validateEnvironment(config: Record<string, any>): Record<string, any> {
     }),
     EventEmitterModule.forRoot(),
     DatabaseModule,
+    RedisModule,
     UsersModule,
     AuthModule,
     WsModule,

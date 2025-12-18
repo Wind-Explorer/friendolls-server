@@ -16,6 +16,7 @@ import { AuthService } from '../../auth/auth.service';
 import { JwtVerificationService } from '../../auth/services/jwt-verification.service';
 import { CursorPositionDto } from '../dto/cursor-position.dto';
 import { PrismaService } from '../../database/prisma.service';
+import { UserSocketService } from './user-socket.service';
 
 import { FriendEvents } from '../../friends/events/friend.events';
 import type {
@@ -45,7 +46,6 @@ export class StateGateway
   implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
 {
   private readonly logger = new Logger(StateGateway.name);
-  private userSocketMap: Map<string, string> = new Map();
   private lastBroadcastMap: Map<string, number> = new Map();
 
   @WebSocketServer() io: Server;
@@ -54,6 +54,7 @@ export class StateGateway
     private readonly authService: AuthService,
     private readonly jwtVerificationService: JwtVerificationService,
     private readonly prisma: PrismaService,
+    private readonly userSocketService: UserSocketService,
   ) {}
 
   afterInit() {
@@ -94,7 +95,7 @@ export class StateGateway
       this.logger.log(`WebSocket authenticated: ${payload.sub}`);
 
       const user = await this.authService.syncUserFromToken(client.data.user);
-      this.userSocketMap.set(user.id, client.id);
+      await this.userSocketService.setSocket(user.id, client.id);
       client.data.userId = user.id;
 
       // Initialize friends cache using Prisma directly
@@ -117,7 +118,7 @@ export class StateGateway
     }
   }
 
-  handleDisconnect(client: AuthenticatedSocket) {
+  async handleDisconnect(client: AuthenticatedSocket) {
     const user = client.data.user;
 
     if (user) {
@@ -125,34 +126,28 @@ export class StateGateway
 
       if (userId) {
         // Check if this socket is still the active one for the user
-        const currentSocketId = this.userSocketMap.get(userId);
+        const currentSocketId = await this.userSocketService.getSocket(userId);
         if (currentSocketId === client.id) {
-          this.userSocketMap.delete(userId);
+          await this.userSocketService.removeSocket(userId);
           this.lastBroadcastMap.delete(userId);
 
           // Notify friends that this user has disconnected
           const friends = client.data.friends;
           if (friends) {
-            for (const friendId of friends) {
-              const friendSocketId = this.userSocketMap.get(friendId);
-              if (friendSocketId) {
-                this.io.to(friendSocketId).emit(WS_EVENT.FRIEND_DISCONNECTED, {
-                  userId: userId,
-                });
-              }
+            const friendIds = Array.from(friends);
+            const friendSockets = await this.userSocketService.getFriendsSockets(friendIds);
+            
+            for (const { socketId } of friendSockets) {
+              this.io.to(socketId).emit(WS_EVENT.FRIEND_DISCONNECTED, {
+                userId: userId,
+              });
             }
           }
         }
-      } else {
-        // Fallback for cases where client.data.userId might not be set
-        for (const [uid, socketId] of this.userSocketMap.entries()) {
-          if (socketId === client.id) {
-            this.userSocketMap.delete(uid);
-            this.lastBroadcastMap.delete(uid);
-            break;
-          }
-        }
       }
+      // Note: We can't iterate over Redis keys easily to find socketId match without userId
+      // The previous fallback loop over map entries is not efficient with Redis.
+      // We rely on client.data.userId being set correctly during connection.
     }
 
     this.logger.log(
@@ -160,12 +155,12 @@ export class StateGateway
     );
   }
 
-  isUserOnline(userId: string): boolean {
-    return this.userSocketMap.has(userId);
+  async isUserOnline(userId: string): Promise<boolean> {
+    return this.userSocketService.isUserOnline(userId);
   }
 
   @SubscribeMessage(WS_EVENT.CURSOR_REPORT_POSITION)
-  handleCursorReportPosition(
+  async handleCursorReportPosition(
     client: AuthenticatedSocket,
     data: CursorPositionDto,
   ) {
@@ -192,25 +187,25 @@ export class StateGateway
     // Broadcast to online friends
     const friends = client.data.friends;
     if (friends) {
-      for (const friendId of friends) {
-        const friendSocketId = this.userSocketMap.get(friendId);
-        if (friendSocketId) {
-          const payload = {
-            userId: currentUserId,
-            position: data,
-          };
-          this.io
-            .to(friendSocketId)
-            .emit(WS_EVENT.FRIEND_CURSOR_POSITION, payload);
-        }
+      const friendIds = Array.from(friends);
+      const friendSockets = await this.userSocketService.getFriendsSockets(friendIds);
+
+      for (const { socketId } of friendSockets) {
+        const payload = {
+          userId: currentUserId,
+          position: data,
+        };
+        this.io
+          .to(socketId)
+          .emit(WS_EVENT.FRIEND_CURSOR_POSITION, payload);
       }
     }
   }
 
   @OnEvent(FriendEvents.REQUEST_RECEIVED)
-  handleFriendRequestReceived(payload: FriendRequestReceivedEvent) {
+  async handleFriendRequestReceived(payload: FriendRequestReceivedEvent) {
     const { userId, friendRequest } = payload;
-    const socketId = this.userSocketMap.get(userId);
+    const socketId = await this.userSocketService.getSocket(userId);
     if (socketId) {
       this.io.to(socketId).emit(WS_EVENT.FRIEND_REQUEST_RECEIVED, {
         id: friendRequest.id,
@@ -229,10 +224,10 @@ export class StateGateway
   }
 
   @OnEvent(FriendEvents.REQUEST_ACCEPTED)
-  handleFriendRequestAccepted(payload: FriendRequestAcceptedEvent) {
+  async handleFriendRequestAccepted(payload: FriendRequestAcceptedEvent) {
     const { userId, friendRequest } = payload;
 
-    const socketId = this.userSocketMap.get(userId);
+    const socketId = await this.userSocketService.getSocket(userId);
 
     // 1. Update cache for the user who sent the request (userId / friendRequest.senderId)
     if (socketId) {
@@ -259,7 +254,7 @@ export class StateGateway
     }
 
     // 2. Update cache for the user who accepted the request (friendRequest.receiverId)
-    const receiverSocketId = this.userSocketMap.get(friendRequest.receiverId);
+    const receiverSocketId = await this.userSocketService.getSocket(friendRequest.receiverId);
     if (receiverSocketId) {
       const receiverSocket = this.io.sockets.sockets.get(
         receiverSocketId,
@@ -271,9 +266,9 @@ export class StateGateway
   }
 
   @OnEvent(FriendEvents.REQUEST_DENIED)
-  handleFriendRequestDenied(payload: FriendRequestDeniedEvent) {
+  async handleFriendRequestDenied(payload: FriendRequestDeniedEvent) {
     const { userId, friendRequest } = payload;
-    const socketId = this.userSocketMap.get(userId);
+    const socketId = await this.userSocketService.getSocket(userId);
     if (socketId) {
       this.io.to(socketId).emit(WS_EVENT.FRIEND_REQUEST_DENIED, {
         id: friendRequest.id,
@@ -292,10 +287,10 @@ export class StateGateway
   }
 
   @OnEvent(FriendEvents.UNFRIENDED)
-  handleUnfriended(payload: UnfriendedEvent) {
+  async handleUnfriended(payload: UnfriendedEvent) {
     const { userId, friendId } = payload;
 
-    const socketId = this.userSocketMap.get(userId);
+    const socketId = await this.userSocketService.getSocket(userId);
 
     // 1. Update cache for the user receiving the notification (userId)
     if (socketId) {
@@ -313,7 +308,7 @@ export class StateGateway
     }
 
     // 2. Update cache for the user initiating the unfriend (friendId)
-    const initiatorSocketId = this.userSocketMap.get(friendId);
+    const initiatorSocketId = await this.userSocketService.getSocket(friendId);
     if (initiatorSocketId) {
       const initiatorSocket = this.io.sockets.sockets.get(
         initiatorSocketId,
