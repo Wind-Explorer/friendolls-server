@@ -16,7 +16,10 @@ Backend server for Friendolls.
 
 ## Code Style & Conventions
 
-- **Architecture**: NestJS standard (Module -> Controller -> Service). Use DI.
+- **Architecture**:
+  - NestJS standard (Module -> Controller -> Service).
+  - Use DI.
+  - Redis for caching and horizontal scaling (optional, falls back to local memory).
 - **Database**: `PrismaService` only. No raw SQL.
 - **Validation**: strict `class-validator` DTOs (whitelisting enabled).
 - **Naming**: `PascalCase` (Classes), `camelCase` (vars/methods), `kebab-case` (files).
