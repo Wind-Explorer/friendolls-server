@@ -47,6 +47,7 @@ model User {
   receivedFriendRequests FriendRequest[] @relation("ReceivedFriendRequests")
   userFriendships        Friendship[]    @relation("UserFriendships")
   friendFriendships      Friendship[]    @relation("FriendFriendships")
+  dolls                  Doll[]
 
   @@map("users")
 }
@@ -77,6 +78,20 @@ model Friendship {
 
   @@unique([userId, friendId])
   @@map("friendships")
+}
+
+model Doll {
+  id            String    @id @default(uuid())
+  name          String
+  configuration Json
+  userId        String    @map("user_id")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  deletedAt     DateTime? @map("deleted_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("dolls")
 }
 
 enum FriendRequestStatus {

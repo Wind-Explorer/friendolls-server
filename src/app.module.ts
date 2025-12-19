@@ -10,6 +10,7 @@ import { DatabaseModule } from './database/database.module';
 import { RedisModule } from './database/redis.module';
 import { WsModule } from './ws/ws.module';
 import { FriendsModule } from './friends/friends.module';
+import { DollsModule } from './dolls/dolls.module';
 
 /**
  * Validates required environment variables.
@@ -69,6 +70,7 @@ function validateEnvironment(config: Record<string, any>): Record<string, any> {
     AuthModule,
     WsModule,
     FriendsModule,
+    DollsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
