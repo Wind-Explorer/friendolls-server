@@ -19,7 +19,7 @@ Backend server for Friendolls.
 - **Architecture**:
   - NestJS standard (Module -> Controller -> Service).
   - Use DI.
-  - Redis for caching and horizontal scaling (optional, falls back to local memory).
+  - Redis for caching and horizontal scaling.
 - **Database**: `PrismaService` only. No raw SQL.
 - **Validation**: strict `class-validator` DTOs (whitelisting enabled).
 - **Naming**: `PascalCase` (Classes), `camelCase` (vars/methods), `kebab-case` (files).
