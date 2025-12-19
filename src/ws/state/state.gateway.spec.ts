@@ -190,7 +190,9 @@ describe('StateGateway', () => {
         data: { user: { keycloakSub: 'test-sub' } },
       };
 
-      await gateway.handleDisconnect(mockClient as unknown as AuthenticatedSocket);
+      await gateway.handleDisconnect(
+        mockClient as unknown as AuthenticatedSocket,
+      );
 
       expect(mockLoggerLog).toHaveBeenCalledWith(
         `Client id: ${mockClient.id} disconnected (user: test-sub)`,
@@ -203,7 +205,9 @@ describe('StateGateway', () => {
         data: {},
       };
 
-      await gateway.handleDisconnect(mockClient as unknown as AuthenticatedSocket);
+      await gateway.handleDisconnect(
+        mockClient as unknown as AuthenticatedSocket,
+      );
 
       expect(mockLoggerLog).toHaveBeenCalledWith(
         `Client id: ${mockClient.id} disconnected (user: unknown)`,
@@ -213,22 +217,28 @@ describe('StateGateway', () => {
     it('should remove socket if it matches', async () => {
       const mockClient: MockSocket = {
         id: 'client1',
-        data: { 
+        data: {
           user: { keycloakSub: 'test-sub' },
           userId: 'user-id',
           friends: new Set(['friend-1']),
         },
       };
 
-      (mockUserSocketService.getSocket as jest.Mock).mockResolvedValue('client1');
+      (mockUserSocketService.getSocket as jest.Mock).mockResolvedValue(
+        'client1',
+      );
       (mockUserSocketService.getFriendsSockets as jest.Mock).mockResolvedValue([
-        { userId: 'friend-1', socketId: 'friend-socket-id' }
+        { userId: 'friend-1', socketId: 'friend-socket-id' },
       ]);
 
-      await gateway.handleDisconnect(mockClient as unknown as AuthenticatedSocket);
+      await gateway.handleDisconnect(
+        mockClient as unknown as AuthenticatedSocket,
+      );
 
       expect(mockUserSocketService.getSocket).toHaveBeenCalledWith('user-id');
-      expect(mockUserSocketService.removeSocket).toHaveBeenCalledWith('user-id');
+      expect(mockUserSocketService.removeSocket).toHaveBeenCalledWith(
+        'user-id',
+      );
       expect(mockServer.to).toHaveBeenCalledWith('friend-socket-id');
     });
   });
@@ -277,7 +287,9 @@ describe('StateGateway', () => {
       };
 
       // Mock getFriendsSockets to return empty array
-      (mockUserSocketService.getFriendsSockets as jest.Mock).mockResolvedValue([]);
+      (mockUserSocketService.getFriendsSockets as jest.Mock).mockResolvedValue(
+        [],
+      );
 
       const data: CursorPositionDto = { x: 100, y: 200 };
 

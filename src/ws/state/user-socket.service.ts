@@ -71,7 +71,9 @@ export class UserSocketService {
     return !!socketId;
   }
 
-  async getFriendsSockets(friendIds: string[]): Promise<{ userId: string; socketId: string }[]> {
+  async getFriendsSockets(
+    friendIds: string[],
+  ): Promise<{ userId: string; socketId: string }[]> {
     if (friendIds.length === 0) {
       return [];
     }
@@ -84,7 +86,7 @@ export class UserSocketService {
         const results = await pipeline.exec();
 
         const sockets: { userId: string; socketId: string }[] = [];
-        
+
         if (results) {
           results.forEach((result, index) => {
             const [err, socketId] = result;
@@ -95,7 +97,10 @@ export class UserSocketService {
         }
         return sockets;
       } catch (error) {
-        this.logger.error('Failed to batch get friend sockets from Redis', error);
+        this.logger.error(
+          'Failed to batch get friend sockets from Redis',
+          error,
+        );
         // Fallback to local implementation
       }
     }

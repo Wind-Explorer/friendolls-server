@@ -55,19 +55,42 @@ export class DollsController {
     return this.dollsService.create(user.id, createDollDto);
   }
 
-  @Get()
+  @Get('me')
   @ApiOperation({
-    summary: 'Get all dolls',
+    summary: 'Get my dolls',
     description: 'Retrieves all dolls belonging to the authenticated user.',
   })
   @ApiResponse({
     status: 200,
-    description: 'Return all dolls.',
+    description: 'Return list of dolls owned by the user.',
   })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
-  async findAll(@CurrentUser() authUser: AuthenticatedUser) {
+  async listMyDolls(@CurrentUser() authUser: AuthenticatedUser) {
     const user = await this.authService.ensureUserExists(authUser);
-    return this.dollsService.findAll(user.id);
+    return this.dollsService.listByOwner(user.id, user.id);
+  }
+
+  @Get('user/:userId')
+  @ApiOperation({
+    summary: "Get a user's dolls",
+    description:
+      'Retrieves dolls belonging to a specific user. Requires being friends with that user.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Return list of dolls owned by the specified user.',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Forbidden - Not friends with user',
+  })
+  @ApiUnauthorizedResponse({ description: 'Unauthorized' })
+  async listUserDolls(
+    @CurrentUser() authUser: AuthenticatedUser,
+    @Param('userId') userId: string,
+  ) {
+    const user = await this.authService.ensureUserExists(authUser);
+    return this.dollsService.listByOwner(userId, user.id);
   }
 
   @Get(':id')

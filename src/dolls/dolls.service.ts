@@ -4,18 +4,39 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../database/prisma.service';
 import { CreateDollDto, DollConfigurationDto } from './dto/create-doll.dto';
 import { UpdateDollDto } from './dto/update-doll.dto';
 import { Doll, Prisma } from '@prisma/client';
+import {
+  DollEvents,
+  DollCreatedEvent,
+  DollUpdatedEvent,
+  DollDeletedEvent,
+} from './events/doll.events';
 
 @Injectable()
 export class DollsService {
   private readonly logger = new Logger(DollsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
-  async create(userId: string, createDollDto: CreateDollDto): Promise<Doll> {
+  async getFriendIds(userId: string): Promise<string[]> {
+    const friendships = await this.prisma.friendship.findMany({
+      where: { userId },
+      select: { friendId: true },
+    });
+    return friendships.map((f) => f.friendId);
+  }
+
+  async create(
+    requestingUserId: string,
+    createDollDto: CreateDollDto,
+  ): Promise<Doll> {
     const defaultConfiguration: DollConfigurationDto = {
       colorScheme: {
         outline: '#000000',
@@ -34,19 +55,50 @@ export class DollsService {
       },
     };
 
-    return this.prisma.doll.create({
-      data: {
-        name: createDollDto.name,
-        configuration: configuration as unknown as Prisma.InputJsonValue,
-        userId,
-      },
-    });
+    return this.prisma.doll
+      .create({
+        data: {
+          name: createDollDto.name,
+          configuration: configuration as unknown as Prisma.InputJsonValue,
+          userId: requestingUserId,
+        },
+      })
+      .then((doll) => {
+        const event: DollCreatedEvent = {
+          userId: requestingUserId,
+          doll,
+        };
+        this.eventEmitter.emit(DollEvents.DOLL_CREATED, event);
+        return doll;
+      });
   }
 
-  async findAll(userId: string): Promise<Doll[]> {
+  async listByOwner(
+    ownerId: string,
+    requestingUserId: string,
+  ): Promise<Doll[]> {
+    // If requesting own dolls, no need to check friendship
+    if (ownerId === requestingUserId) {
+      return this.prisma.doll.findMany({
+        where: {
+          userId: ownerId,
+          deletedAt: null,
+        },
+        orderBy: {
+          createdAt: 'asc',
+        },
+      });
+    }
+
+    // If requesting someone else's dolls, check friendship
+    const friendIds = await this.getFriendIds(requestingUserId);
+    if (!friendIds.includes(ownerId)) {
+      throw new ForbiddenException('You are not friends with this user');
+    }
+
     return this.prisma.doll.findMany({
       where: {
-        userId,
+        userId: ownerId,
         deletedAt: null,
       },
       orderBy: {
@@ -55,20 +107,22 @@ export class DollsService {
     });
   }
 
-  async findOne(id: string, userId: string): Promise<Doll> {
+  async findOne(id: string, requestingUserId: string): Promise<Doll> {
+    const friendIds = await this.getFriendIds(requestingUserId);
+    const accessibleUserIds = [requestingUserId, ...friendIds];
+
     const doll = await this.prisma.doll.findFirst({
       where: {
         id,
+        userId: { in: accessibleUserIds },
         deletedAt: null,
       },
     });
 
     if (!doll) {
-      throw new NotFoundException(`Doll with ID ${id} not found`);
-    }
-
-    if (doll.userId !== userId) {
-      throw new ForbiddenException('You do not have access to this doll');
+      throw new NotFoundException(
+        `Doll with ID ${id} not found or access denied`,
+      );
     }
 
     return doll;
@@ -76,10 +130,15 @@ export class DollsService {
 
   async update(
     id: string,
-    userId: string,
+    requestingUserId: string,
     updateDollDto: UpdateDollDto,
   ): Promise<Doll> {
-    const doll = await this.findOne(id, userId);
+    const doll = await this.findOne(id, requestingUserId);
+
+    // Only owner can update
+    if (doll.userId !== requestingUserId) {
+      throw new ForbiddenException('You can only update your own dolls');
+    }
 
     let configuration = doll.configuration as unknown as DollConfigurationDto;
 
@@ -101,18 +160,31 @@ export class DollsService {
       };
     }
 
-    return this.prisma.doll.update({
-      where: { id },
-      data: {
-        name: updateDollDto.name,
-        configuration: configuration as unknown as Prisma.InputJsonValue,
-      },
-    });
+    return this.prisma.doll
+      .update({
+        where: { id },
+        data: {
+          name: updateDollDto.name,
+          configuration: configuration as unknown as Prisma.InputJsonValue,
+        },
+      })
+      .then((doll) => {
+        const event: DollUpdatedEvent = {
+          userId: requestingUserId,
+          doll,
+        };
+        this.eventEmitter.emit(DollEvents.DOLL_UPDATED, event);
+        return doll;
+      });
   }
 
-  async remove(id: string, userId: string): Promise<void> {
-    // Check existence and ownership
-    await this.findOne(id, userId);
+  async remove(id: string, requestingUserId: string): Promise<void> {
+    const doll = await this.findOne(id, requestingUserId);
+
+    // Only owner can delete
+    if (doll.userId !== requestingUserId) {
+      throw new ForbiddenException('You can only delete your own dolls');
+    }
 
     // Soft delete
     await this.prisma.doll.update({
@@ -121,5 +193,11 @@ export class DollsService {
         deletedAt: new Date(),
       },
     });
+
+    const event: DollDeletedEvent = {
+      userId: requestingUserId,
+      dollId: id,
+    };
+    this.eventEmitter.emit(DollEvents.DOLL_DELETED, event);
   }
 }

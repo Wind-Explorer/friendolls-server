@@ -26,6 +26,13 @@ import type {
   UnfriendedEvent,
 } from '../../friends/events/friend.events';
 
+import { DollEvents } from '../../dolls/events/doll.events';
+import type {
+  DollCreatedEvent,
+  DollUpdatedEvent,
+  DollDeletedEvent,
+} from '../../dolls/events/doll.events';
+
 const WS_EVENT = {
   CURSOR_REPORT_POSITION: 'cursor-report-position',
   FRIEND_REQUEST_RECEIVED: 'friend-request-received',
@@ -34,6 +41,9 @@ const WS_EVENT = {
   UNFRIENDED: 'unfriended',
   FRIEND_CURSOR_POSITION: 'friend-cursor-position',
   FRIEND_DISCONNECTED: 'friend-disconnected',
+  FRIEND_DOLL_CREATED: 'friend-doll-created',
+  FRIEND_DOLL_UPDATED: 'friend-doll-updated',
+  FRIEND_DOLL_DELETED: 'friend-doll-deleted',
 } as const;
 
 @WebSocketGateway({
@@ -135,8 +145,9 @@ export class StateGateway
           const friends = client.data.friends;
           if (friends) {
             const friendIds = Array.from(friends);
-            const friendSockets = await this.userSocketService.getFriendsSockets(friendIds);
-            
+            const friendSockets =
+              await this.userSocketService.getFriendsSockets(friendIds);
+
             for (const { socketId } of friendSockets) {
               this.io.to(socketId).emit(WS_EVENT.FRIEND_DISCONNECTED, {
                 userId: userId,
@@ -188,16 +199,15 @@ export class StateGateway
     const friends = client.data.friends;
     if (friends) {
       const friendIds = Array.from(friends);
-      const friendSockets = await this.userSocketService.getFriendsSockets(friendIds);
+      const friendSockets =
+        await this.userSocketService.getFriendsSockets(friendIds);
 
       for (const { socketId } of friendSockets) {
         const payload = {
           userId: currentUserId,
           position: data,
         };
-        this.io
-          .to(socketId)
-          .emit(WS_EVENT.FRIEND_CURSOR_POSITION, payload);
+        this.io.to(socketId).emit(WS_EVENT.FRIEND_CURSOR_POSITION, payload);
       }
     }
   }
@@ -254,7 +264,9 @@ export class StateGateway
     }
 
     // 2. Update cache for the user who accepted the request (friendRequest.receiverId)
-    const receiverSocketId = await this.userSocketService.getSocket(friendRequest.receiverId);
+    const receiverSocketId = await this.userSocketService.getSocket(
+      friendRequest.receiverId,
+    );
     if (receiverSocketId) {
       const receiverSocket = this.io.sockets.sockets.get(
         receiverSocketId,
@@ -316,6 +328,63 @@ export class StateGateway
       if (initiatorSocket && initiatorSocket.data.friends) {
         initiatorSocket.data.friends.delete(userId);
       }
+    }
+  }
+
+  @OnEvent(DollEvents.DOLL_CREATED)
+  async handleDollCreated(payload: DollCreatedEvent) {
+    const { userId, doll } = payload;
+    const friendSockets = await this.userSocketService.getFriendsSockets([
+      userId,
+    ]);
+
+    for (const { socketId } of friendSockets) {
+      this.io.to(socketId).emit(WS_EVENT.FRIEND_DOLL_CREATED, {
+        friendId: userId,
+        doll: {
+          id: doll.id,
+          name: doll.name,
+          configuration: doll.configuration,
+          createdAt: doll.createdAt,
+          updatedAt: doll.updatedAt,
+        },
+      });
+    }
+  }
+
+  @OnEvent(DollEvents.DOLL_UPDATED)
+  async handleDollUpdated(payload: DollUpdatedEvent) {
+    const { userId, doll } = payload;
+    const friendSockets = await this.userSocketService.getFriendsSockets([
+      userId,
+    ]);
+
+    for (const { socketId } of friendSockets) {
+      this.io.to(socketId).emit(WS_EVENT.FRIEND_DOLL_UPDATED, {
+        friendId: userId,
+        doll: {
+          id: doll.id,
+          name: doll.name,
+          configuration: doll.configuration,
+          createdAt: doll.createdAt,
+          updatedAt: doll.updatedAt,
+        },
+      });
+    }
+  }
+
+  @OnEvent(DollEvents.DOLL_DELETED)
+  async handleDollDeleted(payload: DollDeletedEvent) {
+    const { userId, dollId } = payload;
+    const friendSockets = await this.userSocketService.getFriendsSockets([
+      userId,
+    ]);
+
+    for (const { socketId } of friendSockets) {
+      this.io.to(socketId).emit(WS_EVENT.FRIEND_DOLL_DELETED, {
+        friendId: userId,
+        dollId,
+      });
     }
   }
 }
