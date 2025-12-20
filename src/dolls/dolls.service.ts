@@ -187,11 +187,20 @@ export class DollsService {
     }
 
     // Soft delete
-    await this.prisma.doll.update({
-      where: { id },
-      data: {
-        deletedAt: new Date(),
-      },
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Soft delete the doll
+      await tx.doll.update({
+        where: { id },
+        data: {
+          deletedAt: new Date(),
+        },
+      });
+
+      // 2. Unset if it was active
+      await tx.user.updateMany({
+        where: { id: requestingUserId, activeDollId: id },
+        data: { activeDollId: null },
+      });
     });
 
     const event: DollDeletedEvent = {

@@ -42,6 +42,10 @@ model User {
   /// Timestamp of last login
   lastLoginAt DateTime? @map("last_login_at")
 
+  // The ID of the currently active doll for the user
+  activeDollId String? @map("active_doll_id")
+  activeDoll   Doll?   @relation("ActiveDoll", fields: [activeDollId], references: [id])
+
   sentFriendRequests     FriendRequest[] @relation("SentFriendRequests")
   receivedFriendRequests FriendRequest[] @relation("ReceivedFriendRequests")
   userFriendships        Friendship[]    @relation("UserFriendships")
@@ -89,6 +93,9 @@ model Doll {
   deletedAt     DateTime? @map("deleted_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Reverse relation for the active doll
+  activeForUser User[] @relation("ActiveDoll")
 
   @@map("dolls")
 }

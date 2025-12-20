@@ -34,6 +34,10 @@ describe('DollsService', () => {
     friendship: {
       findMany: jest.fn().mockResolvedValue([]),
     },
+    $transaction: jest.fn((callback) => callback(mockPrismaService)),
+    user: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   };
 
   const mockEventEmitter = {

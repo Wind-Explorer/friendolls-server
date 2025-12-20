@@ -385,4 +385,79 @@ export class UsersService {
 
     return users;
   }
+
+  /**
+   * Sets the active doll for a user.
+   *
+   * @param userId - The user's internal ID
+   * @param dollId - The doll's internal ID
+   * @param requestingUserKeycloakSub - The Keycloak sub of the requesting user
+   * @throws NotFoundException if the user or doll is not found
+   * @throws ForbiddenException if the doll does not belong to the user
+   */
+  async setActiveDoll(
+    userId: string,
+    dollId: string,
+    requestingUserKeycloakSub: string,
+  ): Promise<User> {
+    const user = await this.findOne(userId);
+
+    // Verify the user is updating their own profile
+    if (user.keycloakSub !== requestingUserKeycloakSub) {
+      throw new ForbiddenException('You can only update your own profile');
+    }
+
+    // Verify the doll exists and belongs to the user
+    const doll = await this.prisma.doll.findUnique({
+      where: { id: dollId },
+    });
+
+    if (!doll || doll.deletedAt) {
+      throw new NotFoundException(`Doll with ID ${dollId} not found`);
+    }
+
+    if (doll.userId !== userId) {
+      throw new ForbiddenException('You can only activate your own dolls');
+    }
+
+    // Update the active doll
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: { activeDollId: dollId },
+      include: { activeDoll: true },
+    });
+
+    this.logger.log(`User ${userId} activated doll ${dollId}`);
+
+    return updatedUser;
+  }
+
+  /**
+   * Removes the active doll for a user.
+   *
+   * @param userId - The user's internal ID
+   * @param requestingUserKeycloakSub - The Keycloak sub of the requesting user
+   * @throws NotFoundException if the user is not found
+   */
+  async removeActiveDoll(
+    userId: string,
+    requestingUserKeycloakSub: string,
+  ): Promise<User> {
+    const user = await this.findOne(userId);
+
+    // Verify the user is updating their own profile
+    if (user.keycloakSub !== requestingUserKeycloakSub) {
+      throw new ForbiddenException('You can only update your own profile');
+    }
+
+    // Remove the active doll
+    const updatedUser = await this.prisma.user.update({
+      where: { id: userId },
+      data: { activeDollId: null },
+    });
+
+    this.logger.log(`User ${userId} deactivated their doll`);
+
+    return updatedUser;
+  }
 }

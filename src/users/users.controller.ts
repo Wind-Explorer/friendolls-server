@@ -266,4 +266,81 @@ export class UsersController {
     this.logger.log(`Delete user ${id} (requested by ${authUser.keycloakSub})`);
     await this.usersService.delete(id, authUser.keycloakSub);
   }
+
+  /**
+   * Set the active doll for the current user.
+   */
+  @Put('me/active-doll/:dollId')
+  @ApiOperation({
+    summary: 'Set active doll',
+    description:
+      'Sets the active doll for the authenticated user. The doll must belong to the user.',
+  })
+  @ApiParam({
+    name: 'dollId',
+    description: 'Doll internal UUID',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Active doll set successfully',
+    type: UserResponseDto,
+  })
+  @ApiResponse({
+    status: 404,
+    description: 'Doll not found',
+  })
+  @ApiResponse({
+    status: 403,
+    description: 'Doll does not belong to the user',
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or missing JWT token',
+  })
+  async setActiveDoll(
+    @Param('dollId') dollId: string,
+    @CurrentUser() authUser: AuthenticatedUser,
+  ): Promise<User> {
+    this.logger.log(
+      `Set active doll ${dollId} (requested by ${authUser.keycloakSub})`,
+    );
+
+    // First ensure user exists in our system
+    const user = await this.authService.ensureUserExists(authUser);
+
+    return this.usersService.setActiveDoll(
+      user.id,
+      dollId,
+      authUser.keycloakSub,
+    );
+  }
+
+  /**
+   * Remove the active doll for the current user.
+   */
+  @Delete('me/active-doll')
+  @ApiOperation({
+    summary: 'Remove active doll',
+    description: 'Removes the active doll for the authenticated user.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Active doll removed successfully',
+    type: UserResponseDto,
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Invalid or missing JWT token',
+  })
+  async removeActiveDoll(
+    @CurrentUser() authUser: AuthenticatedUser,
+  ): Promise<User> {
+    this.logger.log(
+      `Remove active doll (requested by ${authUser.keycloakSub})`,
+    );
+
+    // First ensure user exists in our system
+    const user = await this.authService.ensureUserExists(authUser);
+
+    return this.usersService.removeActiveDoll(user.id, authUser.keycloakSub);
+  }
 }

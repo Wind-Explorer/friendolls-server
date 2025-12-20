@@ -82,4 +82,12 @@ export class UserResponseDto implements PrismaUser {
     nullable: true,
   })
   lastLoginAt: Date | null;
+
+  @ApiProperty({
+    description: 'ID of the currently active doll',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+    required: false,
+    nullable: true,
+  })
+  activeDollId: string | null;
 }

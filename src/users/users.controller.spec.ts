@@ -50,6 +50,7 @@ describe('UsersController', () => {
     createdAt: new Date('2024-01-01'),
     updatedAt: new Date('2024-01-01'),
     lastLoginAt: new Date('2024-01-01'),
+    activeDollId: null,
   };
 
   beforeEach(async () => {

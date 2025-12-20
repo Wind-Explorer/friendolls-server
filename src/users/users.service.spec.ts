@@ -20,6 +20,7 @@ describe('UsersService', () => {
     lastLoginAt: new Date('2024-01-15T10:30:00.000Z'),
     createdAt: new Date('2024-01-01T00:00:00.000Z'),
     updatedAt: new Date('2024-01-15T10:30:00.000Z'),
+    activeDollId: null,
   };
 
   const mockPrismaService = {
@@ -720,6 +721,123 @@ describe('UsersService', () => {
           },
         }),
       );
+    });
+  });
+
+  describe('active doll management', () => {
+    const dollId = 'doll-123';
+    const mockDoll = {
+      id: dollId,
+      name: 'Test Doll',
+      configuration: {},
+      userId: mockUser.id,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    };
+
+    describe('setActiveDoll', () => {
+      it('should set active doll for user', async () => {
+        const updatedUser = { ...mockUser, activeDollId: dollId };
+
+        mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+        // @ts-expect-error - mockPrismaService type definition is incomplete in test file
+        mockPrismaService.doll = { findUnique: jest.fn() };
+        // @ts-expect-error - mockPrismaService type definition is incomplete in test file
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        mockPrismaService.doll.findUnique.mockResolvedValue(mockDoll);
+        mockPrismaService.user.update.mockResolvedValue(updatedUser);
+
+        const result = await service.setActiveDoll(
+          mockUser.id,
+          dollId,
+          mockUser.keycloakSub,
+        );
+
+        expect(result).toEqual(updatedUser);
+        expect(mockPrismaService.user.update).toHaveBeenCalledWith({
+          where: { id: mockUser.id },
+          data: { activeDollId: dollId },
+          include: { activeDoll: true },
+        });
+      });
+
+      it('should throw ForbiddenException if user tries to update another profile', async () => {
+        mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+
+        await expect(
+          service.setActiveDoll(mockUser.id, dollId, 'other-keycloak-sub'),
+        ).rejects.toThrow(ForbiddenException);
+      });
+
+      it('should throw NotFoundException if doll not found', async () => {
+        mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+        // @ts-expect-error - mockPrismaService type definition is incomplete in test file
+        mockPrismaService.doll = { findUnique: jest.fn() };
+        // @ts-expect-error - mockPrismaService type definition is incomplete in test file
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        mockPrismaService.doll.findUnique.mockResolvedValue(null);
+
+        await expect(
+          service.setActiveDoll(mockUser.id, dollId, mockUser.keycloakSub),
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw NotFoundException if doll is soft deleted', async () => {
+        const deletedDoll = { ...mockDoll, deletedAt: new Date() };
+        mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+        // @ts-expect-error - mockPrismaService type definition is incomplete in test file
+        mockPrismaService.doll = { findUnique: jest.fn() };
+        // @ts-expect-error - mockPrismaService type definition is incomplete in test file
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        mockPrismaService.doll.findUnique.mockResolvedValue(deletedDoll);
+
+        await expect(
+          service.setActiveDoll(mockUser.id, dollId, mockUser.keycloakSub),
+        ).rejects.toThrow(NotFoundException);
+      });
+
+      it('should throw ForbiddenException if doll belongs to another user', async () => {
+        const otherUserDoll = { ...mockDoll, userId: 'other-user' };
+        mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+        // @ts-expect-error - mockPrismaService type definition is incomplete in test file
+        mockPrismaService.doll = { findUnique: jest.fn() };
+        // @ts-expect-error - mockPrismaService type definition is incomplete in test file
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
+        mockPrismaService.doll.findUnique.mockResolvedValue(otherUserDoll);
+
+        await expect(
+          service.setActiveDoll(mockUser.id, dollId, mockUser.keycloakSub),
+        ).rejects.toThrow(ForbiddenException);
+      });
+    });
+
+    describe('removeActiveDoll', () => {
+      it('should remove active doll for user', async () => {
+        const updatedUser = { ...mockUser, activeDollId: null };
+
+        mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+        mockPrismaService.user.update.mockResolvedValue(updatedUser);
+
+        const result = await service.removeActiveDoll(
+          mockUser.id,
+          mockUser.keycloakSub,
+        );
+
+        expect(result).toEqual(updatedUser);
+        expect(mockPrismaService.user.update).toHaveBeenCalledWith({
+          where: { id: mockUser.id },
+          data: { activeDollId: null },
+        });
+      });
+
+      it('should throw ForbiddenException if user tries to update another profile', async () => {
+        mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+
+        await expect(
+          service.removeActiveDoll(mockUser.id, 'other-keycloak-sub'),
+        ).rejects.toThrow(ForbiddenException);
+      });
     });
   });
 });
