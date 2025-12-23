@@ -33,6 +33,9 @@ import type {
   DollDeletedEvent,
 } from '../../dolls/events/doll.events';
 
+import { UserEvents } from '../../users/events/user.events';
+import type { UserActiveDollChangedEvent } from '../../users/events/user.events';
+
 const WS_EVENT = {
   CURSOR_REPORT_POSITION: 'cursor-report-position',
   FRIEND_REQUEST_RECEIVED: 'friend-request-received',
@@ -44,6 +47,7 @@ const WS_EVENT = {
   FRIEND_DOLL_CREATED: 'friend-doll-created',
   FRIEND_DOLL_UPDATED: 'friend-doll-updated',
   FRIEND_DOLL_DELETED: 'friend-doll-deleted',
+  FRIEND_ACTIVE_DOLL_CHANGED: 'friend-active-doll-changed',
 } as const;
 
 @WebSocketGateway({
@@ -107,6 +111,13 @@ export class StateGateway
       const user = await this.authService.syncUserFromToken(client.data.user);
       await this.userSocketService.setSocket(user.id, client.id);
       client.data.userId = user.id;
+
+      // Sync active doll state to socket
+      const userWithDoll = await this.prisma.user.findUnique({
+        where: { id: user.id },
+        select: { activeDollId: true },
+      });
+      client.data.activeDollId = userWithDoll?.activeDollId || null;
 
       // Initialize friends cache using Prisma directly
       const friends = await this.prisma.friendship.findMany({
@@ -182,6 +193,11 @@ export class StateGateway
     }
 
     const currentUserId = client.data.userId;
+
+    // Do not broadcast cursor position if user has no active doll
+    if (!client.data.activeDollId) {
+      return;
+    }
 
     if (!currentUserId) {
       this.logger.warn(`Could not find user ID for client ${client.id}`);
@@ -384,6 +400,51 @@ export class StateGateway
       this.io.to(socketId).emit(WS_EVENT.FRIEND_DOLL_DELETED, {
         friendId: userId,
         dollId,
+      });
+    }
+  }
+
+  @OnEvent(UserEvents.ACTIVE_DOLL_CHANGED)
+  async handleActiveDollChanged(payload: UserActiveDollChangedEvent) {
+    const { userId, dollId, doll } = payload;
+
+    // 1. Update the user's socket data to reflect the change
+    const socketId = await this.userSocketService.getSocket(userId);
+    if (socketId) {
+      const userSocket = this.io.sockets.sockets.get(
+        socketId,
+      ) as AuthenticatedSocket;
+      if (userSocket) {
+        userSocket.data.activeDollId = dollId;
+      }
+    }
+
+    // 2. Broadcast to friends
+    const friends = await this.prisma.friendship.findMany({
+      where: { userId },
+      select: { friendId: true },
+    });
+    const friendIds = friends.map((f) => f.friendId);
+
+    const friendSockets =
+      await this.userSocketService.getFriendsSockets(friendIds);
+
+    this.logger.log(
+      `Broadcasting friend-active-doll-changed for user ${userId}, doll: ${doll ? doll.id : 'null'} to ${friendSockets.length} friends`,
+    );
+
+    for (const { socketId } of friendSockets) {
+      this.io.to(socketId).emit(WS_EVENT.FRIEND_ACTIVE_DOLL_CHANGED, {
+        friendId: userId,
+        doll: doll
+          ? {
+              id: doll.id,
+              name: doll.name,
+              configuration: doll.configuration,
+              createdAt: doll.createdAt,
+              updatedAt: doll.updatedAt,
+            }
+          : null,
       });
     }
   }

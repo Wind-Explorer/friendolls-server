@@ -275,7 +275,11 @@ export class FriendsService {
     return this.prisma.friendship.findMany({
       where: { userId },
       include: {
-        friend: true,
+        friend: {
+          include: {
+            activeDoll: true,
+          },
+        },
       },
       orderBy: {
         createdAt: 'desc',

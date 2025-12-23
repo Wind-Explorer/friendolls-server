@@ -26,6 +26,12 @@ export class UserBasicDto {
     required: false,
   })
   picture?: string;
+
+  @ApiProperty({
+    description: "User's active doll",
+    required: false,
+  })
+  activeDoll?: any;
 }
 
 export class FriendRequestResponseDto {

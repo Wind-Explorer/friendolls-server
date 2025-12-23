@@ -42,6 +42,20 @@ type FriendRequestWithRelations = FriendRequest & {
 };
 import { UsersService } from '../users/users.service';
 
+type FriendWithDoll = {
+  id: string;
+  name: string;
+  username: string | null;
+  picture: string | null;
+  activeDoll?: {
+    id: string;
+    name: string;
+    configuration: any;
+    createdAt: Date;
+    updatedAt: Date;
+  } | null;
+};
+
 @ApiTags('friends')
 @Controller('friends')
 @UseGuards(JwtAuthGuard)
@@ -299,16 +313,30 @@ export class FriendsController {
 
     const friendships = await this.friendsService.getFriends(user.id);
 
-    return friendships.map((friendship) => ({
-      id: friendship.id,
-      friend: {
-        id: friendship.friend.id,
-        name: friendship.friend.name,
-        username: friendship.friend.username ?? undefined,
-        picture: friendship.friend.picture ?? undefined,
-      },
-      createdAt: friendship.createdAt,
-    }));
+    return friendships.map((friendship) => {
+      // Need to cast to any because TS doesn't know about the included relation in the service method
+      const friend = friendship.friend as unknown as FriendWithDoll;
+
+      return {
+        id: friendship.id,
+        friend: {
+          id: friend.id,
+          name: friend.name,
+          username: friend.username ?? undefined,
+          picture: friend.picture ?? undefined,
+          activeDoll: friend.activeDoll
+            ? {
+                id: friend.activeDoll.id,
+                name: friend.activeDoll.name,
+                configuration: friend.activeDoll.configuration as unknown,
+                createdAt: friend.activeDoll.createdAt,
+                updatedAt: friend.activeDoll.updatedAt,
+              }
+            : undefined,
+        },
+        createdAt: friendship.createdAt,
+      };
+    });
   }
 
   @Delete(':friendId')

@@ -34,7 +34,10 @@ describe('DollsService', () => {
     friendship: {
       findMany: jest.fn().mockResolvedValue([]),
     },
-    $transaction: jest.fn((callback) => callback(mockPrismaService)),
+    $transaction: jest.fn((callback) => {
+      // eslint-disable-next-line @typescript-eslint/no-unsafe-return
+      return callback(mockPrismaService);
+    }),
     user: {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
@@ -71,6 +74,13 @@ describe('DollsService', () => {
     it('should create a doll with default configuration', async () => {
       const createDto = { name: 'New Doll' };
       const userId = 'user-1';
+
+      // Mock the transaction callback to return the doll
+      jest
+        .spyOn(prismaService, '$transaction')
+        .mockImplementation(async (callback) => {
+          return callback(prismaService);
+        });
 
       await service.create(userId, createDto);
 

@@ -9,6 +9,7 @@ export type AuthenticatedSocket = BaseSocket<
   {
     user?: AuthenticatedUser;
     userId?: string;
+    activeDollId?: string | null;
     friends?: Set<string>; // Set of friend user IDs
   }
 >;

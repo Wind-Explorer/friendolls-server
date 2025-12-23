@@ -4,10 +4,12 @@ import {
   ForbiddenException,
   Logger,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../database/prisma.service';
 import { User, Prisma } from '@prisma/client';
 import type { UpdateUserDto } from './dto/update-user.dto';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/client';
+import { UserEvents } from './events/user.events';
 
 /**
  * Interface for creating a user from Keycloak token
@@ -56,7 +58,10 @@ export interface CreateUserFromTokenDto {
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly eventEmitter: EventEmitter2,
+  ) {}
 
   /**
    * Finds a user or creates one if they don't exist.
@@ -429,6 +434,12 @@ export class UsersService {
 
     this.logger.log(`User ${userId} activated doll ${dollId}`);
 
+    this.eventEmitter.emit(UserEvents.ACTIVE_DOLL_CHANGED, {
+      userId,
+      dollId,
+      doll,
+    });
+
     return updatedUser;
   }
 
@@ -457,6 +468,12 @@ export class UsersService {
     });
 
     this.logger.log(`User ${userId} deactivated their doll`);
+
+    this.eventEmitter.emit(UserEvents.ACTIVE_DOLL_CHANGED, {
+      userId,
+      dollId: null,
+      doll: null,
+    });
 
     return updatedUser;
   }
