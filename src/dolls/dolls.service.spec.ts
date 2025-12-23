@@ -75,13 +75,6 @@ describe('DollsService', () => {
       const createDto = { name: 'New Doll' };
       const userId = 'user-1';
 
-      // Mock the transaction callback to return the doll
-      jest
-        .spyOn(prismaService, '$transaction')
-        .mockImplementation(async (callback) => {
-          return callback(prismaService);
-        });
-
       await service.create(userId, createDto);
 
       expect(prismaService.doll.create).toHaveBeenCalledWith({

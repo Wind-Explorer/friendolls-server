@@ -59,6 +59,16 @@ export class RedisIoAdapter extends IoAdapter {
         this.logger.error('Redis Pub client error', err);
       });
       subClient.on('error', (err) => {
+        // Suppress specific error about subscriber mode restrictions
+        // This is a known issue/behavior when ioredis performs internal checks (like info) on a subscriber connection
+        if (
+          err.message &&
+          err.message.includes(
+            'Connection in subscriber mode, only subscriber commands may be used',
+          )
+        ) {
+          return;
+        }
         this.logger.error('Redis Sub client error', err);
       });
 

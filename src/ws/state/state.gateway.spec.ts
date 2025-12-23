@@ -18,10 +18,12 @@ interface MockSocket extends Partial<AuthenticatedSocket> {
       picture?: string;
     };
     userId?: string;
+    activeDollId?: string | null;
     friends?: Set<string>;
   };
   handshake?: any;
   disconnect?: jest.Mock;
+  emit?: jest.Mock;
 }
 
 describe('StateGateway', () => {
@@ -29,6 +31,7 @@ describe('StateGateway', () => {
   let mockLoggerLog: jest.SpyInstance;
   let mockLoggerDebug: jest.SpyInstance;
   let mockLoggerWarn: jest.SpyInstance;
+  let mockLoggerError: jest.SpyInstance;
   let mockServer: {
     sockets: { sockets: { size: number; get: jest.Mock } };
     to: jest.Mock;
@@ -37,6 +40,8 @@ describe('StateGateway', () => {
   let mockJwtVerificationService: Partial<JwtVerificationService>;
   let mockPrismaService: Partial<PrismaService>;
   let mockUserSocketService: Partial<UserSocketService>;
+  let mockRedisClient: { publish: jest.Mock };
+  let mockRedisSubscriber: { subscribe: jest.Mock; on: jest.Mock };
 
   beforeEach(async () => {
     mockServer = {
@@ -67,9 +72,12 @@ describe('StateGateway', () => {
     };
 
     mockPrismaService = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({ activeDollId: 'doll-123' }),
+      } as any,
       friendship: {
         findMany: jest.fn().mockResolvedValue([]),
-      },
+      } as any,
     };
 
     mockUserSocketService = {
@@ -78,6 +86,15 @@ describe('StateGateway', () => {
       getSocket: jest.fn().mockResolvedValue(null),
       isUserOnline: jest.fn().mockResolvedValue(false),
       getFriendsSockets: jest.fn().mockResolvedValue([]),
+    };
+
+    mockRedisClient = {
+      publish: jest.fn().mockResolvedValue(1),
+    };
+
+    mockRedisSubscriber = {
+      subscribe: jest.fn().mockResolvedValue(undefined),
+      on: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -90,6 +107,8 @@ describe('StateGateway', () => {
         },
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: UserSocketService, useValue: mockUserSocketService },
+        { provide: 'REDIS_CLIENT', useValue: mockRedisClient },
+        { provide: 'REDIS_SUBSCRIBER_CLIENT', useValue: mockRedisSubscriber },
       ],
     }).compile();
 
@@ -101,6 +120,9 @@ describe('StateGateway', () => {
       .spyOn(gateway['logger'], 'debug')
       .mockImplementation();
     mockLoggerWarn = jest.spyOn(gateway['logger'], 'warn').mockImplementation();
+    mockLoggerError = jest
+      .spyOn(gateway['logger'], 'error')
+      .mockImplementation();
   });
 
   afterEach(() => {
@@ -114,20 +136,27 @@ describe('StateGateway', () => {
   describe('afterInit', () => {
     it('should log initialization message', () => {
       gateway.afterInit();
-
       expect(mockLoggerLog).toHaveBeenCalledWith('Initialized');
+    });
+
+    it('should subscribe to redis channel', () => {
+      expect(mockRedisSubscriber.subscribe).toHaveBeenCalledWith(
+        'active-doll-update',
+        expect.any(Function),
+      );
     });
   });
 
   describe('handleConnection', () => {
-    it('should log client connection and sync user when authenticated', async () => {
+    it('should verify token and set basic user data (but NOT sync DB)', async () => {
       const mockClient: MockSocket = {
         id: 'client1',
-        data: { user: { keycloakSub: 'test-sub' } },
+        data: {},
         handshake: {
           auth: { token: 'mock-token' },
           headers: {},
         },
+        disconnect: jest.fn(),
       };
 
       await gateway.handleConnection(
@@ -140,20 +169,21 @@ describe('StateGateway', () => {
       expect(mockJwtVerificationService.verifyToken).toHaveBeenCalledWith(
         'mock-token',
       );
-      expect(mockAuthService.syncUserFromToken).toHaveBeenCalledWith(
+
+      // Should NOT call these anymore in handleConnection
+      expect(mockAuthService.syncUserFromToken).not.toHaveBeenCalled();
+      expect(mockUserSocketService.setSocket).not.toHaveBeenCalled();
+
+      // Should set data on client
+      expect(mockClient.data.user).toEqual(
         expect.objectContaining({
           keycloakSub: 'test-sub',
         }),
       );
-      expect(mockUserSocketService.setSocket).toHaveBeenCalledWith(
-        'user-id',
-        'client1',
-      );
+      expect(mockClient.data.activeDollId).toBeNull();
+
       expect(mockLoggerLog).toHaveBeenCalledWith(
-        `Client id: ${mockClient.id} connected (user: test-sub)`,
-      );
-      expect(mockLoggerDebug).toHaveBeenCalledWith(
-        'Number of connected clients: 5',
+        expect.stringContaining('WebSocket authenticated (Pending Init)'),
       );
     });
 
@@ -178,6 +208,83 @@ describe('StateGateway', () => {
 
       expect(mockLoggerWarn).toHaveBeenCalledWith(
         'WebSocket connection attempt without token',
+      );
+      expect(mockClient.disconnect).toHaveBeenCalled();
+    });
+  });
+
+  describe('handleClientInitialize', () => {
+    it('should sync user, fetch state, and emit initialized event', async () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: {
+          user: { keycloakSub: 'test-sub' },
+          friends: new Set(),
+        },
+        emit: jest.fn(),
+        disconnect: jest.fn(),
+      };
+
+      // Mock Prisma responses
+      (mockPrismaService.user!.findUnique as jest.Mock).mockResolvedValue({
+        activeDollId: 'doll-123',
+      });
+      (mockPrismaService.friendship!.findMany as jest.Mock).mockResolvedValue([
+        { friendId: 'friend-1' },
+        { friendId: 'friend-2' },
+      ]);
+
+      await gateway.handleClientInitialize(
+        mockClient as unknown as AuthenticatedSocket,
+      );
+
+      // 1. Sync User
+      expect(mockAuthService.syncUserFromToken).toHaveBeenCalledWith(
+        mockClient.data.user,
+      );
+
+      // 2. Set Socket
+      expect(mockUserSocketService.setSocket).toHaveBeenCalledWith(
+        'user-id',
+        'client1',
+      );
+
+      // 3. Fetch State (DB)
+      expect(mockPrismaService.user!.findUnique).toHaveBeenCalledWith({
+        where: { id: 'user-id' },
+        select: { activeDollId: true },
+      });
+      expect(mockPrismaService.friendship!.findMany).toHaveBeenCalledWith({
+        where: { userId: 'user-id' },
+        select: { friendId: true },
+      });
+
+      // 4. Update Client Data
+      expect(mockClient.data.userId).toBe('user-id');
+      expect(mockClient.data.activeDollId).toBe('doll-123');
+      expect(mockClient.data.friends).toContain('friend-1');
+      expect(mockClient.data.friends).toContain('friend-2');
+
+      // 5. Emit Initialized
+      expect(mockClient.emit).toHaveBeenCalledWith('initialized', {
+        userId: 'user-id',
+        activeDollId: 'doll-123',
+      });
+    });
+
+    it('should disconnect if no user data present on socket', async () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: {}, // Missing user data
+        disconnect: jest.fn(),
+      };
+
+      await gateway.handleClientInitialize(
+        mockClient as unknown as AuthenticatedSocket,
+      );
+
+      expect(mockLoggerError).toHaveBeenCalledWith(
+        expect.stringContaining('Unauthorized: No user data found'),
       );
       expect(mockClient.disconnect).toHaveBeenCalled();
     });
@@ -250,6 +357,7 @@ describe('StateGateway', () => {
         data: {
           user: { keycloakSub: 'test-sub' },
           userId: 'user-1',
+          activeDollId: 'doll-1', // User must have active doll
           friends: new Set(['friend-1']),
         },
       };
@@ -260,6 +368,9 @@ describe('StateGateway', () => {
       ]);
 
       const data: CursorPositionDto = { x: 100, y: 200 };
+
+      // Force time to pass for throttle check if needed, or rely on first call passing
+      // The implementation uses lastBroadcastMap, initialized to empty, so first call should pass if now > 0
 
       await gateway.handleCursorReportPosition(
         mockClient as unknown as AuthenticatedSocket,
@@ -276,20 +387,16 @@ describe('StateGateway', () => {
       });
     });
 
-    it('should not emit when no friends are online', async () => {
+    it('should NOT emit if user has no active doll', async () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
           user: { keycloakSub: 'test-sub' },
           userId: 'user-1',
+          activeDollId: null, // No doll
           friends: new Set(['friend-1']),
         },
       };
-
-      // Mock getFriendsSockets to return empty array
-      (mockUserSocketService.getFriendsSockets as jest.Mock).mockResolvedValue(
-        [],
-      );
 
       const data: CursorPositionDto = { x: 100, y: 200 };
 
@@ -298,11 +405,10 @@ describe('StateGateway', () => {
         data,
       );
 
-      // Verify that no message was emitted
       expect(mockServer.to).not.toHaveBeenCalled();
     });
 
-    it('should log warning when userId is missing', async () => {
+    it('should return early when userId is missing (not initialized)', async () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
@@ -319,12 +425,9 @@ describe('StateGateway', () => {
         data,
       );
 
-      // Verify that a warning was logged
-      expect(mockLoggerWarn).toHaveBeenCalledWith(
-        `Could not find user ID for client ${mockClient.id}`,
-      );
       // Verify that no message was emitted
       expect(mockServer.to).not.toHaveBeenCalled();
+      // No explicit warning log expected in new implementation for just return
     });
 
     it('should throw exception when client is not authenticated', async () => {

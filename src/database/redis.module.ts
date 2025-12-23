@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 
 export const REDIS_CLIENT = 'REDIS_CLIENT';
+export const REDIS_SUBSCRIBER_CLIENT = 'REDIS_SUBSCRIBER_CLIENT';
 
 @Global()
 @Module({
@@ -46,7 +47,46 @@ export const REDIS_CLIENT = 'REDIS_CLIENT';
       },
       inject: [ConfigService],
     },
+    {
+      provide: REDIS_SUBSCRIBER_CLIENT,
+      useFactory: (configService: ConfigService) => {
+        const logger = new Logger('RedisSubscriberModule');
+        const host = configService.get<string>('REDIS_HOST');
+        const port = configService.get<number>('REDIS_PORT');
+        const password = configService.get<string>('REDIS_PASSWORD');
+
+        if (!host) {
+          return null;
+        }
+
+        const client = new Redis({
+          host,
+          port: port || 6379,
+          password: password,
+          retryStrategy(times) {
+            const delay = Math.min(times * 50, 2000);
+            return delay;
+          },
+        });
+
+        client.on('error', (err) => {
+          // Suppress the known error that happens when ioredis tries to perform checks on a subscriber connection
+          if (
+            err.message &&
+            err.message.includes(
+              'Connection in subscriber mode, only subscriber commands may be used',
+            )
+          ) {
+            return;
+          }
+          logger.error('Redis subscriber connection error', err);
+        });
+
+        return client;
+      },
+      inject: [ConfigService],
+    },
   ],
-  exports: [REDIS_CLIENT],
+  exports: [REDIS_CLIENT, REDIS_SUBSCRIBER_CLIENT],
 })
 export class RedisModule {}

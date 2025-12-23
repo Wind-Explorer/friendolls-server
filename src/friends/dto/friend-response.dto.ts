@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { ActiveDollDto } from '../../dolls/dto/active-doll.dto';
 
 export class UserBasicDto {
   @ApiProperty({
@@ -30,8 +31,9 @@ export class UserBasicDto {
   @ApiProperty({
     description: "User's active doll",
     required: false,
+    type: ActiveDollDto,
   })
-  activeDoll?: any;
+  activeDoll?: ActiveDollDto;
 }
 
 export class FriendRequestResponseDto {

@@ -20,7 +20,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
-import { User, FriendRequest } from '@prisma/client';
+import { User, FriendRequest, Prisma } from '@prisma/client';
 import { FriendsService } from './friends.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
@@ -42,19 +42,13 @@ type FriendRequestWithRelations = FriendRequest & {
 };
 import { UsersService } from '../users/users.service';
 
-type FriendWithDoll = {
-  id: string;
-  name: string;
-  username: string | null;
-  picture: string | null;
-  activeDoll?: {
-    id: string;
-    name: string;
-    configuration: any;
-    createdAt: Date;
-    updatedAt: Date;
-  } | null;
-};
+type FriendshipWithFriendAndDoll = Prisma.FriendshipGetPayload<{
+  include: {
+    friend: {
+      include: { activeDoll: true };
+    };
+  };
+}>;
 
 @ApiTags('friends')
 @Controller('friends')
@@ -314,8 +308,10 @@ export class FriendsController {
     const friendships = await this.friendsService.getFriends(user.id);
 
     return friendships.map((friendship) => {
-      // Need to cast to any because TS doesn't know about the included relation in the service method
-      const friend = friendship.friend as unknown as FriendWithDoll;
+      // Use Prisma generated type for safe casting
+      const typedFriendship =
+        friendship as unknown as FriendshipWithFriendAndDoll;
+      const friend = typedFriendship.friend;
 
       return {
         id: friendship.id,
@@ -328,7 +324,8 @@ export class FriendsController {
             ? {
                 id: friend.activeDoll.id,
                 name: friend.activeDoll.name,
-                configuration: friend.activeDoll.configuration as unknown,
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
+                configuration: friend.activeDoll.configuration as any,
                 createdAt: friend.activeDoll.createdAt,
                 updatedAt: friend.activeDoll.updatedAt,
               }
