@@ -276,6 +276,8 @@ describe('StateGateway', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {}, // Missing user data
+        handshake: {},
+        emit: jest.fn(),
         disconnect: jest.fn(),
       };
 

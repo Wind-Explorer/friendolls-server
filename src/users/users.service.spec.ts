@@ -5,6 +5,7 @@ import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { User } from '@prisma/client';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { PrismaClientKnownRequestError } from '@prisma/client/runtime/client';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -34,6 +35,10 @@ describe('UsersService', () => {
     },
   };
 
+  const mockEventEmitter = {
+    emit: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -41,6 +46,10 @@ describe('UsersService', () => {
         {
           provide: PrismaService,
           useValue: mockPrismaService,
+        },
+        {
+          provide: EventEmitter2,
+          useValue: mockEventEmitter,
         },
       ],
     }).compile();

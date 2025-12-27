@@ -408,7 +408,11 @@ describe('FriendsService', () => {
       expect(mockPrismaService.friendship.findMany).toHaveBeenCalledWith({
         where: { userId: 'user-1' },
         include: {
-          friend: true,
+          friend: {
+            include: {
+              activeDoll: true,
+            },
+          },
         },
         orderBy: {
           createdAt: 'desc',
