@@ -206,9 +206,41 @@ export class StateGateway
   @SubscribeMessage(WS_EVENT.CLIENT_INITIALIZE)
   async handleClientInitialize(client: AuthenticatedSocket) {
     try {
-      const userTokenData = client.data.user;
+      let userTokenData = client.data.user;
+
       if (!userTokenData) {
-        throw new WsException('Unauthorized: No user data found');
+        this.logger.warn(
+          'No user data found during initialization - attempting handshake token verification',
+        );
+
+        const token = this.jwtVerificationService.extractToken(
+          client.handshake,
+        );
+        if (!token) {
+          throw new WsException('Unauthorized: No user data found');
+        }
+
+        const payload = await this.jwtVerificationService.verifyToken(token);
+        if (!payload.sub) {
+          throw new WsException('Invalid token: missing subject');
+        }
+
+        userTokenData = {
+          keycloakSub: payload.sub,
+          email: payload.email,
+          name: payload.name,
+          username: payload.preferred_username,
+          picture: payload.picture,
+        };
+        client.data.user = userTokenData;
+
+        // Ensure defaults exist if this path runs on reconnect
+        client.data.activeDollId = client.data.activeDollId ?? null;
+        client.data.friends = client.data.friends ?? new Set();
+
+        this.logger.log(
+          `WebSocket authenticated via initialize fallback (Pending Init): ${payload.sub}`,
+        );
       }
 
       // 1. Sync user from token (DB Write/Read)
@@ -241,7 +273,10 @@ export class StateGateway
         activeDollId: client.data.activeDollId,
       });
     } catch (error) {
-      this.logger.error(`Initialization error: ${error}`);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      this.logger.error(`Initialization error: ${errorMessage}`);
+      client.emit('auth-error', { message: errorMessage });
       client.disconnect();
     }
   }
