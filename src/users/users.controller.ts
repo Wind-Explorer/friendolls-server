@@ -8,6 +8,7 @@ import {
   HttpCode,
   UseGuards,
   Logger,
+  Post,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -17,6 +18,7 @@ import {
   ApiBearerAuth,
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
+  ApiNoContentResponse,
 } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { User, UserResponseDto } from './users.entity';
@@ -27,6 +29,7 @@ import {
   type AuthenticatedUser,
 } from '../auth/decorators/current-user.decorator';
 import { AuthService } from '../auth/auth.service';
+import { LogoutRequestDto } from './dto/logout-request.dto';
 
 /**
  * Users Controller
@@ -48,6 +51,28 @@ export class UsersController {
     private readonly usersService: UsersService,
     private readonly authService: AuthService,
   ) {}
+
+  /**
+   * Logout current authenticated session by revoking the refresh token.
+   * Falls back to local cleanup only if revocation fails.
+   */
+  @Post('logout')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Logout current session' })
+  @ApiNoContentResponse({ description: 'Session logged out' })
+  @ApiUnauthorizedResponse({ description: 'Invalid or missing JWT token' })
+  async logout(
+    @CurrentUser() authUser: AuthenticatedUser,
+    @Body() body: LogoutRequestDto,
+  ): Promise<void> {
+    this.logger.log(`Logout requested for ${authUser.keycloakSub}`);
+    const refreshToken = body.refreshToken;
+
+    const revoked = await this.authService.revokeToken(refreshToken);
+    if (!revoked) {
+      this.logger.warn('Token revocation failed or was skipped');
+    }
+  }
 
   /**
    * Get current authenticated user's profile.

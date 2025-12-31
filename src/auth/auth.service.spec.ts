@@ -3,6 +3,9 @@ import { AuthService } from './auth.service';
 import { UsersService } from '../users/users.service';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
 import { User } from '../users/users.entity';
+import { ConfigService } from '@nestjs/config';
+import axios from 'axios';
+import { URLSearchParams } from 'url';
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -48,17 +51,78 @@ describe('AuthService', () => {
           provide: UsersService,
           useValue: mockUsersService,
         },
+        {
+          provide: ConfigService,
+          useValue: {
+            get: (key: string) => {
+              if (key === 'JWT_ISSUER') return 'https://auth.example.com';
+              if (key === 'KEYCLOAK_CLIENT_ID') return 'friendolls-client';
+              if (key === 'KEYCLOAK_CLIENT_SECRET') return 'secret';
+              return undefined;
+            },
+          },
+        },
       ],
     }).compile();
 
     service = module.get<AuthService>(AuthService);
 
-    // Reset mocks
     jest.clearAllMocks();
   });
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  describe('revokeToken', () => {
+    beforeEach(() => {
+      jest.spyOn(axios, 'post').mockReset();
+    });
+
+    it('should skip when config missing', async () => {
+      const missingConfigService = new ConfigService({});
+      const localService = new AuthService(
+        mockUsersService as any,
+        missingConfigService,
+      );
+      const warnSpy = jest.spyOn<any, any>(localService['logger'], 'warn');
+      const result = await localService.revokeToken('rt');
+      expect(result).toBe(false);
+      expect(warnSpy).toHaveBeenCalled();
+    });
+
+    it('should return true on successful revocation', async () => {
+      jest.spyOn(axios, 'post').mockResolvedValue({ status: 200 });
+
+      const result = await service.revokeToken('rt-success');
+
+      expect(result).toBe(true);
+      expect(axios.post).toHaveBeenCalledWith(
+        'https://auth.example.com/protocol/openid-connect/revoke',
+        expect.any(URLSearchParams),
+        expect.objectContaining({ headers: expect.any(Object) }),
+      );
+    });
+
+    it('should return false on non-2xx response', async () => {
+      jest.spyOn(axios, 'post').mockResolvedValue({ status: 400 });
+      const warnSpy = jest.spyOn<any, any>(service['logger'], 'warn');
+
+      const result = await service.revokeToken('rt-fail');
+
+      expect(result).toBe(false);
+      expect(warnSpy).toHaveBeenCalled();
+    });
+
+    it('should return false on error', async () => {
+      jest.spyOn(axios, 'post').mockRejectedValue({ message: 'boom' });
+      const warnSpy = jest.spyOn<any, any>(service['logger'], 'warn');
+
+      const result = await service.revokeToken('rt-error');
+
+      expect(result).toBe(false);
+      expect(warnSpy).toHaveBeenCalled();
+    });
   });
 
   describe('syncUserFromToken', () => {
@@ -170,7 +234,7 @@ describe('AuthService', () => {
         name: 'Empty Sub User',
       });
 
-      const result = await service.syncUserFromToken(authUserEmptySub);
+      await service.syncUserFromToken(authUserEmptySub);
 
       expect(mockCreateFromToken).toHaveBeenCalledWith(
         expect.objectContaining({

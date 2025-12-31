@@ -1,4 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import axios, { AxiosError } from 'axios';
+import { URLSearchParams } from 'url';
 import { UsersService } from '../users/users.service';
 import type { AuthenticatedUser } from './decorators/current-user.decorator';
 import { User } from '../users/users.entity';
@@ -34,7 +37,63 @@ import { User } from '../users/users.entity';
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
 
-  constructor(private readonly usersService: UsersService) {}
+  constructor(
+    private readonly usersService: UsersService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  /**
+   * Revoke refresh token via Keycloak token revocation endpoint, if configured.
+   * Returns true on success; false on missing config or failure.
+   */
+  async revokeToken(refreshToken: string): Promise<boolean> {
+    const issuer = this.configService.get<string>('JWT_ISSUER');
+    const clientId = this.configService.get<string>('KEYCLOAK_CLIENT_ID');
+    const clientSecret = this.configService.get<string>(
+      'KEYCLOAK_CLIENT_SECRET',
+    );
+
+    if (!issuer || !clientId) {
+      this.logger.warn(
+        'JWT issuer or client id missing, skipping token revocation',
+      );
+      return false;
+    }
+
+    const revokeUrl = `${issuer}/protocol/openid-connect/revoke`;
+    try {
+      const params = new URLSearchParams({
+        client_id: clientId,
+        token: refreshToken,
+        token_type_hint: 'refresh_token',
+      });
+      if (clientSecret) {
+        params.set('client_secret', clientSecret);
+      }
+
+      const response = await axios.post(revokeUrl, params, {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        timeout: 5000,
+        validateStatus: (status) => status >= 200 && status < 500,
+      });
+
+      if (response.status >= 200 && response.status < 300) {
+        this.logger.log('Refresh token revoked');
+        return true;
+      }
+
+      this.logger.warn(
+        `Token revocation failed with status ${response.status}`,
+      );
+      return false;
+    } catch (error) {
+      const err = error as AxiosError;
+      this.logger.warn(
+        `Failed to revoke token: ${err.response?.status} ${err.response?.statusText ?? err.message}`,
+      );
+      return false;
+    }
+  }
 
   /**
    * Handles user login and profile synchronization from Keycloak token.
@@ -52,8 +111,6 @@ export class AuthService {
     const { keycloakSub, email, name, username, picture, roles } =
       authenticatedUser;
 
-    // Use createFromToken which handles upsert atomically
-    // This prevents race conditions when multiple requests arrive simultaneously
     const user = await this.usersService.createFromToken({
       keycloakSub,
       email: email || '',
@@ -70,23 +127,11 @@ export class AuthService {
    * Ensures a user exists in the local database without updating profile data.
    * This is optimized for regular API calls that need the user record but don't
    * need to sync profile data from Keycloak on every request.
-   *
-   * - For new users: Creates with full profile data
-   * - For existing users: Returns existing record WITHOUT updating (read-only)
-   *
-   * Use this for most API endpoints. Only use syncUserFromToken() for actual
-   * login events (WebSocket connections, /users/me endpoint).
-   *
-   * @param authenticatedUser - User data extracted from JWT token
-   * @returns The user entity
    */
   async ensureUserExists(authenticatedUser: AuthenticatedUser): Promise<User> {
     const { keycloakSub, email, name, username, picture, roles } =
       authenticatedUser;
 
-    // Use optimized findOrCreate method
-    // This returns existing users immediately (1 read)
-    // And creates new users if needed (1 read + 1 write)
     return await this.usersService.findOrCreate({
       keycloakSub,
       email: email || '',
@@ -97,24 +142,10 @@ export class AuthService {
     });
   }
 
-  /**
-   * Validates if a user has a specific role.
-   *
-   * @param user - The authenticated user
-   * @param requiredRole - The role to check for
-   * @returns True if the user has the role, false otherwise
-   */
   hasRole(user: AuthenticatedUser, requiredRole: string): boolean {
     return user.roles?.includes(requiredRole) ?? false;
   }
 
-  /**
-   * Validates if a user has any of the specified roles.
-   *
-   * @param user - The authenticated user
-   * @param requiredRoles - Array of roles to check for
-   * @returns True if the user has at least one of the roles, false otherwise
-   */
   hasAnyRole(user: AuthenticatedUser, requiredRoles: string[]): boolean {
     if (!user.roles || user.roles.length === 0) {
       return false;
@@ -122,13 +153,6 @@ export class AuthService {
     return requiredRoles.some((role) => user.roles!.includes(role));
   }
 
-  /**
-   * Validates if a user has all of the specified roles.
-   *
-   * @param user - The authenticated user
-   * @param requiredRoles - Array of roles to check for
-   * @returns True if the user has all of the roles, false otherwise
-   */
   hasAllRoles(user: AuthenticatedUser, requiredRoles: string[]): boolean {
     if (!user.roles || user.roles.length === 0) {
       return false;

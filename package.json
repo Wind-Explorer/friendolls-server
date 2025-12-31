@@ -44,6 +44,7 @@
     "class-validator": "^0.14.2",
     "dotenv": "^17.2.3",
     "ioredis": "^5.8.2",
+    "axios": "^1.7.9",
     "jsonwebtoken": "^9.0.2",
     "jwks-rsa": "^3.2.0",
     "passport": "^0.7.0",

@@ -11,6 +11,7 @@ export interface AuthenticatedUser {
   username?: string;
   picture?: string;
   roles?: string[];
+  sessionState?: string;
 }
 
 /**

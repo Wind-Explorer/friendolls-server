@@ -22,6 +22,7 @@ export interface JwtPayload {
       roles: string[];
     };
   };
+  session_state?: string;
   iss: string; // Issuer
   aud: string | string[]; // Audience
   exp: number; // Expiration time
@@ -96,6 +97,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     username?: string;
     picture?: string;
     roles?: string[];
+    sessionState?: string;
   }> {
     this.logger.debug(`Validating JWT token payload`);
     this.logger.debug(`  Issuer: ${payload.iss}`);
@@ -132,6 +134,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       username: payload.preferred_username,
       picture: payload.picture,
       roles: roles.length > 0 ? roles : undefined,
+      sessionState: payload.session_state,
     };
 
     this.logger.log(
