@@ -6,6 +6,7 @@ import { AuthService } from '../../auth/auth.service';
 import { JwtVerificationService } from '../../auth/services/jwt-verification.service';
 import { PrismaService } from '../../database/prisma.service';
 import { UserSocketService } from './user-socket.service';
+import { WsNotificationService } from './ws-notification.service';
 
 interface MockSocket extends Partial<AuthenticatedSocket> {
   id: string;
@@ -42,6 +43,14 @@ describe('StateGateway', () => {
   let mockUserSocketService: Partial<UserSocketService>;
   let mockRedisClient: { publish: jest.Mock };
   let mockRedisSubscriber: { subscribe: jest.Mock; on: jest.Mock };
+  let mockWsNotificationService: {
+    setIo: jest.Mock;
+    emitToUser: jest.Mock;
+    emitToFriends: jest.Mock;
+    emitToSocket: jest.Mock;
+    updateActiveDollCache: jest.Mock;
+    publishActiveDollUpdate: jest.Mock;
+  };
 
   beforeEach(async () => {
     mockServer = {
@@ -97,6 +106,15 @@ describe('StateGateway', () => {
       on: jest.fn(),
     };
 
+    mockWsNotificationService = {
+      setIo: jest.fn(),
+      emitToUser: jest.fn(),
+      emitToFriends: jest.fn(),
+      emitToSocket: jest.fn(),
+      updateActiveDollCache: jest.fn(),
+      publishActiveDollUpdate: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         StateGateway,
@@ -107,6 +125,7 @@ describe('StateGateway', () => {
         },
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: UserSocketService, useValue: mockUserSocketService },
+        { provide: WsNotificationService, useValue: mockWsNotificationService },
         { provide: 'REDIS_CLIENT', useValue: mockRedisClient },
         { provide: 'REDIS_SUBSCRIBER_CLIENT', useValue: mockRedisSubscriber },
       ],
@@ -142,6 +161,7 @@ describe('StateGateway', () => {
     it('should subscribe to redis channel', () => {
       expect(mockRedisSubscriber.subscribe).toHaveBeenCalledWith(
         'active-doll-update',
+        'friend-cache-update',
         expect.any(Function),
       );
     });
@@ -348,7 +368,11 @@ describe('StateGateway', () => {
       expect(mockUserSocketService.removeSocket).toHaveBeenCalledWith(
         'user-id',
       );
-      expect(mockServer.to).toHaveBeenCalledWith('friend-socket-id');
+      expect(mockWsNotificationService.emitToSocket).toHaveBeenCalledWith(
+        'friend-socket-id',
+        expect.any(String),
+        expect.any(Object),
+      );
     });
   });
 
@@ -379,14 +403,15 @@ describe('StateGateway', () => {
         data,
       );
 
-      // Verify that the message was emitted to the friend
-      expect(mockServer.to).toHaveBeenCalledWith('friend-socket-id');
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      const emitMock = mockServer.to().emit as jest.Mock;
-      expect(emitMock).toHaveBeenCalledWith('friend-cursor-position', {
-        userId: 'user-1',
-        position: data,
-      });
+      // Verify that message was emitted via WsNotificationService
+      expect(mockWsNotificationService.emitToSocket).toHaveBeenCalledWith(
+        'friend-socket-id',
+        'friend-cursor-position',
+        {
+          userId: 'user-1',
+          position: data,
+        },
+      );
     });
 
     it('should NOT emit if user has no active doll', async () => {

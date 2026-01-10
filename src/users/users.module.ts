@@ -1,7 +1,9 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
+import { UsersNotificationService } from './users-notification.service';
 import { AuthModule } from '../auth/auth.module';
+import { WsModule } from '../ws/ws.module';
 
 /**
  * Users Module
@@ -13,8 +15,8 @@ import { AuthModule } from '../auth/auth.module';
  * to access user data and perform synchronization.
  */
 @Module({
-  imports: [forwardRef(() => AuthModule)],
-  providers: [UsersService],
+  imports: [forwardRef(() => AuthModule), forwardRef(() => WsModule)],
+  providers: [UsersService, UsersNotificationService],
   controllers: [UsersController],
   exports: [UsersService],
 })
