@@ -12,6 +12,9 @@ export const WS_EVENT = {
   FRIEND_DOLL_UPDATED: 'friend-doll-updated',
   FRIEND_DOLL_DELETED: 'friend-doll-deleted',
   FRIEND_ACTIVE_DOLL_CHANGED: 'friend-active-doll-changed',
+  CLIENT_SEND_INTERACTION: 'client-send-interaction',
+  INTERACTION_RECEIVED: 'interaction-received',
+  INTERACTION_DELIVERY_FAILED: 'interaction-delivery-failed',
 } as const;
 
 export const REDIS_CHANNEL = {

@@ -18,6 +18,8 @@ import type { AuthenticatedSocket } from '../../types/socket';
 import { AuthService } from '../../auth/auth.service';
 import { JwtVerificationService } from '../../auth/services/jwt-verification.service';
 import { CursorPositionDto } from '../dto/cursor-position.dto';
+import { SendInteractionDto } from '../dto/send-interaction.dto';
+import { InteractionPayloadDto } from '../dto/interaction-payload.dto';
 import { PrismaService } from '../../database/prisma.service';
 import { UserSocketService } from './user-socket.service';
 import { WsNotificationService } from './ws-notification.service';
@@ -335,5 +337,56 @@ export class StateGateway
         );
       }
     }
+  }
+
+  @SubscribeMessage(WS_EVENT.CLIENT_SEND_INTERACTION)
+  async handleSendInteraction(
+    client: AuthenticatedSocket,
+    data: SendInteractionDto,
+  ) {
+    const user = client.data.user;
+    const currentUserId = client.data.userId;
+
+    if (!user || !currentUserId) {
+      throw new WsException('Unauthorized: User not initialized');
+    }
+
+    // 1. Verify recipient is a friend
+    const friends = client.data.friends;
+    if (!friends || !friends.has(data.recipientUserId)) {
+      client.emit(WS_EVENT.INTERACTION_DELIVERY_FAILED, {
+        recipientUserId: data.recipientUserId,
+        reason: 'Recipient is not a friend',
+      });
+      return;
+    }
+
+    // 2. Check if recipient is online
+    const isOnline = await this.userSocketService.isUserOnline(
+      data.recipientUserId,
+    );
+    if (!isOnline) {
+      client.emit(WS_EVENT.INTERACTION_DELIVERY_FAILED, {
+        recipientUserId: data.recipientUserId,
+        reason: 'Recipient is offline',
+      });
+      return;
+    }
+
+    // 3. Construct payload
+    const payload: InteractionPayloadDto = {
+      senderUserId: currentUserId,
+      senderName: user.name || user.username || 'Unknown',
+      content: data.content,
+      type: data.type,
+      timestamp: new Date().toISOString(),
+    };
+
+    // 4. Send to recipient
+    await this.wsNotificationService.emitToUser(
+      data.recipientUserId,
+      WS_EVENT.INTERACTION_RECEIVED,
+      payload,
+    );
   }
 }

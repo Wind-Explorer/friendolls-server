@@ -7,6 +7,8 @@ import { JwtVerificationService } from '../../auth/services/jwt-verification.ser
 import { PrismaService } from '../../database/prisma.service';
 import { UserSocketService } from './user-socket.service';
 import { WsNotificationService } from './ws-notification.service';
+import { SendInteractionDto } from '../dto/send-interaction.dto';
+import { WsException } from '@nestjs/websockets';
 
 interface MockSocket extends Partial<AuthenticatedSocket> {
   id: string;
@@ -470,6 +472,132 @@ describe('StateGateway', () => {
           data,
         ),
       ).rejects.toThrow('Unauthorized');
+    });
+  });
+
+  describe('handleSendInteraction', () => {
+    it('should send interaction to friend if online', async () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: {
+          user: { keycloakSub: 'test-sub', name: 'TestUser' },
+          userId: 'user-1',
+          friends: new Set(['friend-1']),
+        },
+        emit: jest.fn(),
+      };
+
+      const data: SendInteractionDto = {
+        recipientUserId: 'friend-1',
+        content: 'hello',
+        type: 'text',
+      };
+
+      (mockUserSocketService.isUserOnline as jest.Mock).mockResolvedValue(true);
+
+      await gateway.handleSendInteraction(
+        mockClient as unknown as AuthenticatedSocket,
+        data,
+      );
+
+      expect(mockWsNotificationService.emitToUser).toHaveBeenCalledWith(
+        'friend-1',
+        'interaction-received',
+        expect.objectContaining({
+          senderUserId: 'user-1',
+          senderName: 'TestUser',
+          content: 'hello',
+          type: 'text',
+        }),
+      );
+    });
+
+    it('should fail if recipient is not a friend', async () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: {
+          user: { keycloakSub: 'test-sub' },
+          userId: 'user-1',
+          friends: new Set(['friend-1']),
+        },
+        emit: jest.fn(),
+      };
+
+      const data: SendInteractionDto = {
+        recipientUserId: 'stranger-1',
+        content: 'hello',
+        type: 'text',
+      };
+
+      await gateway.handleSendInteraction(
+        mockClient as unknown as AuthenticatedSocket,
+        data,
+      );
+
+      expect(mockClient.emit).toHaveBeenCalledWith(
+        'interaction-delivery-failed',
+        expect.objectContaining({
+          reason: 'Recipient is not a friend',
+        }),
+      );
+      expect(mockWsNotificationService.emitToUser).not.toHaveBeenCalled();
+    });
+
+    it('should fail if recipient is offline', async () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: {
+          user: { keycloakSub: 'test-sub' },
+          userId: 'user-1',
+          friends: new Set(['friend-1']),
+        },
+        emit: jest.fn(),
+      };
+
+      const data: SendInteractionDto = {
+        recipientUserId: 'friend-1',
+        content: 'hello',
+        type: 'text',
+      };
+
+      (mockUserSocketService.isUserOnline as jest.Mock).mockResolvedValue(
+        false,
+      );
+
+      await gateway.handleSendInteraction(
+        mockClient as unknown as AuthenticatedSocket,
+        data,
+      );
+
+      expect(mockClient.emit).toHaveBeenCalledWith(
+        'interaction-delivery-failed',
+        expect.objectContaining({
+          reason: 'Recipient is offline',
+        }),
+      );
+      expect(mockWsNotificationService.emitToUser).not.toHaveBeenCalled();
+    });
+
+    it('should throw Unauthorized if user not initialized', async () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: {
+          // Missing user/userId
+        },
+      };
+
+      const data: SendInteractionDto = {
+        recipientUserId: 'friend-1',
+        content: 'hello',
+        type: 'text',
+      };
+
+      await expect(
+        gateway.handleSendInteraction(
+          mockClient as unknown as AuthenticatedSocket,
+          data,
+        ),
+      ).rejects.toThrow(WsException);
     });
   });
 });
