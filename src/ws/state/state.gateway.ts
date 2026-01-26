@@ -18,6 +18,7 @@ import type { AuthenticatedSocket } from '../../types/socket';
 import { AuthService } from '../../auth/auth.service';
 import { JwtVerificationService } from '../../auth/services/jwt-verification.service';
 import { CursorPositionDto } from '../dto/cursor-position.dto';
+import { UserStatusDto } from '../dto/user-status.dto';
 import { SendInteractionDto } from '../dto/send-interaction.dto';
 import { InteractionPayloadDto } from '../dto/interaction-payload.dto';
 import { PrismaService } from '../../database/prisma.service';
@@ -334,6 +335,67 @@ export class StateGateway
           socketId,
           WS_EVENT.FRIEND_CURSOR_POSITION,
           payload,
+        );
+      }
+    }
+  }
+
+  @SubscribeMessage(WS_EVENT.CLIENT_REPORT_USER_STATUS)
+  async handleClientReportUserStatus(
+    client: AuthenticatedSocket,
+    data: UserStatusDto,
+  ) {
+    const user = client.data.user;
+
+    if (!user) {
+      throw new WsException('Unauthorized');
+    }
+
+    const currentUserId = client.data.userId;
+
+    if (!currentUserId) {
+      // User has not initialized yet
+      return;
+    }
+
+    // Do not broadcast user status if user has no active doll
+    if (!client.data.activeDollId) {
+      return;
+    }
+
+    const now = Date.now();
+    const lastBroadcast = this.lastBroadcastMap.get(currentUserId) || 0;
+    if (now - lastBroadcast < 500) {
+      return;
+    }
+    this.lastBroadcastMap.set(currentUserId, now);
+
+    // Broadcast to online friends
+    const friends = client.data.friends;
+    if (friends) {
+      const friendIds = Array.from(friends);
+      try {
+        const friendSockets =
+          await this.userSocketService.getFriendsSockets(friendIds);
+
+        for (const { socketId } of friendSockets) {
+          const payload = {
+            userId: currentUserId,
+            status: data,
+          };
+          this.wsNotificationService.emitToSocket(
+            socketId,
+            WS_EVENT.FRIEND_USER_STATUS,
+            payload,
+          );
+        }
+        this.logger.debug(
+          `Broadcasted user status to ${friendSockets.length} friends for user ${currentUserId}`,
+        );
+      } catch (error) {
+        this.logger.error(
+          `Failed to broadcast user status for user ${currentUserId}: ${(error as Error).message}`,
+          (error as Error).stack,
         );
       }
     }

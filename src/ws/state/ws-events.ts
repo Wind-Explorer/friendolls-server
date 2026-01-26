@@ -7,6 +7,8 @@ export const WS_EVENT = {
   FRIEND_REQUEST_DENIED: 'friend-request-denied',
   UNFRIENDED: 'unfriended',
   FRIEND_CURSOR_POSITION: 'friend-cursor-position',
+  CLIENT_REPORT_USER_STATUS: 'client-report-user-status',
+  FRIEND_USER_STATUS: 'friend-user-status',
   FRIEND_DISCONNECTED: 'friend-disconnected',
   FRIEND_DOLL_CREATED: 'friend-doll-created',
   FRIEND_DOLL_UPDATED: 'friend-doll-updated',

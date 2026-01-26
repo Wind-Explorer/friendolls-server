@@ -10,6 +10,8 @@ import { WsNotificationService } from './ws-notification.service';
 import { SendInteractionDto } from '../dto/send-interaction.dto';
 import { WsException } from '@nestjs/websockets';
 
+import { UserStatusDto, UserState } from '../dto/user-status.dto';
+
 interface MockSocket extends Partial<AuthenticatedSocket> {
   id: string;
   data: {
@@ -472,6 +474,156 @@ describe('StateGateway', () => {
           data,
         ),
       ).rejects.toThrow('Unauthorized');
+    });
+  });
+
+  describe('handleClientReportUserStatus', () => {
+    it('should emit user status to connected friends', async () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: {
+          user: { keycloakSub: 'test-sub' },
+          userId: 'user-1',
+          activeDollId: 'doll-1', // User must have active doll
+          friends: new Set(['friend-1']),
+        },
+      };
+
+      // Mock getFriendsSockets to return the friend's socket
+      (mockUserSocketService.getFriendsSockets as jest.Mock).mockResolvedValue([
+        { userId: 'friend-1', socketId: 'friend-socket-id' },
+      ]);
+
+      const data: UserStatusDto = {
+        activeApp: 'VS Code',
+        state: UserState.IDLE,
+      };
+
+      await gateway.handleClientReportUserStatus(
+        mockClient as unknown as AuthenticatedSocket,
+        data,
+      );
+
+      // Verify that message was emitted via WsNotificationService
+      expect(mockWsNotificationService.emitToSocket).toHaveBeenCalledWith(
+        'friend-socket-id',
+        'friend-user-status',
+        {
+          userId: 'user-1',
+          status: data,
+        },
+      );
+    });
+
+    it('should NOT emit if user has no active doll', async () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: {
+          user: { keycloakSub: 'test-sub' },
+          userId: 'user-1',
+          activeDollId: null, // No doll
+          friends: new Set(['friend-1']),
+        },
+      };
+
+      const data: UserStatusDto = {
+        activeApp: 'VS Code',
+        state: UserState.IDLE,
+      };
+
+      await gateway.handleClientReportUserStatus(
+        mockClient as unknown as AuthenticatedSocket,
+        data,
+      );
+
+      expect(mockWsNotificationService.emitToSocket).not.toHaveBeenCalled();
+    });
+
+    it('should return early when userId is missing (not initialized)', async () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: {
+          user: { keycloakSub: 'test-sub' },
+          // userId is missing
+          friends: new Set(['friend-1']),
+        },
+      };
+
+      const data: UserStatusDto = {
+        activeApp: 'VS Code',
+        state: UserState.IDLE,
+      };
+
+      await gateway.handleClientReportUserStatus(
+        mockClient as unknown as AuthenticatedSocket,
+        data,
+      );
+
+      // Verify that no message was emitted
+      expect(mockWsNotificationService.emitToSocket).not.toHaveBeenCalled();
+    });
+
+    it('should throw exception when client is not authenticated', async () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: {},
+      };
+      const data: UserStatusDto = {
+        activeApp: 'VS Code',
+        state: UserState.IDLE,
+      };
+
+      await expect(
+        gateway.handleClientReportUserStatus(
+          mockClient as unknown as AuthenticatedSocket,
+          data,
+        ),
+      ).rejects.toThrow('Unauthorized');
+    });
+
+    it('should throttle broadcasts to prevent spam', async () => {
+      const mockClient: MockSocket = {
+        id: 'client1',
+        data: {
+          user: { keycloakSub: 'test-sub' },
+          userId: 'user-1',
+          activeDollId: 'doll-1',
+          friends: new Set(['friend-1']),
+        },
+      };
+
+      // Mock getFriendsSockets to return the friend's socket
+      (mockUserSocketService.getFriendsSockets as jest.Mock).mockResolvedValue([
+        { userId: 'friend-1', socketId: 'friend-socket-id' },
+      ]);
+
+      const data: UserStatusDto = {
+        activeApp: 'VS Code',
+        state: UserState.IDLE,
+      };
+
+      // First call should succeed
+      await gateway.handleClientReportUserStatus(
+        mockClient as unknown as AuthenticatedSocket,
+        data,
+      );
+
+      // Second call immediately after should be throttled
+      await gateway.handleClientReportUserStatus(
+        mockClient as unknown as AuthenticatedSocket,
+        data,
+      );
+
+      // Verify that message was emitted only once (throttled)
+      expect(mockWsNotificationService.emitToSocket).toHaveBeenCalledTimes(1);
+      expect(mockWsNotificationService.emitToSocket).toHaveBeenCalledWith(
+        'friend-socket-id',
+        'friend-user-status',
+        {
+          userId: 'user-1',
+          status: data,
+        },
+      );
     });
   });
 
