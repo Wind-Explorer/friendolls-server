@@ -26,6 +26,8 @@ import { UserSocketService } from './user-socket.service';
 import { WsNotificationService } from './ws-notification.service';
 import { WS_EVENT, REDIS_CHANNEL } from './ws-events';
 
+const USER_STATUS_BROADCAST_THROTTLING_MS = 200;
+
 @WebSocketGateway({
   cors: {
     origin: true,
@@ -365,7 +367,7 @@ export class StateGateway
 
     const now = Date.now();
     const lastBroadcast = this.lastBroadcastMap.get(currentUserId) || 0;
-    if (now - lastBroadcast < 500) {
+    if (now - lastBroadcast < USER_STATUS_BROADCAST_THROTTLING_MS) {
       return;
     }
     this.lastBroadcastMap.set(currentUserId, now);
