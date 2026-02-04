@@ -1,4 +1,6 @@
-import { IsEnum, IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsEnum, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+import { AppMetadataDto } from './app-metadata.dto';
 
 export enum UserState {
   IDLE = 'idle',
@@ -6,10 +8,9 @@ export enum UserState {
 }
 
 export class UserStatusDto {
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  activeApp: string;
+  @ValidateNested()
+  @Type(() => AppMetadataDto)
+  appMetadata: AppMetadataDto;
 
   @IsEnum(UserState)
   state: UserState;

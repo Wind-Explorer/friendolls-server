@@ -495,7 +495,11 @@ describe('StateGateway', () => {
       ]);
 
       const data: UserStatusDto = {
-        activeApp: 'VS Code',
+        appMetadata: {
+          localized: null,
+          unlocalized: 'VS Code',
+          appIconB64: null,
+        },
         state: UserState.IDLE,
       };
 
@@ -527,7 +531,11 @@ describe('StateGateway', () => {
       };
 
       const data: UserStatusDto = {
-        activeApp: 'VS Code',
+        appMetadata: {
+          localized: null,
+          unlocalized: 'VS Code',
+          appIconB64: null,
+        },
         state: UserState.IDLE,
       };
 
@@ -550,7 +558,11 @@ describe('StateGateway', () => {
       };
 
       const data: UserStatusDto = {
-        activeApp: 'VS Code',
+        appMetadata: {
+          localized: null,
+          unlocalized: 'VS Code',
+          appIconB64: null,
+        },
         state: UserState.IDLE,
       };
 
@@ -569,7 +581,11 @@ describe('StateGateway', () => {
         data: {},
       };
       const data: UserStatusDto = {
-        activeApp: 'VS Code',
+        appMetadata: {
+          localized: null,
+          unlocalized: 'VS Code',
+          appIconB64: null,
+        },
         state: UserState.IDLE,
       };
 
@@ -598,7 +614,11 @@ describe('StateGateway', () => {
       ]);
 
       const data: UserStatusDto = {
-        activeApp: 'VS Code',
+        appMetadata: {
+          localized: null,
+          unlocalized: 'VS Code',
+          appIconB64: null,
+        },
         state: UserState.IDLE,
       };
 
