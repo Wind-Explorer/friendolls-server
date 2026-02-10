@@ -9,7 +9,7 @@ import { WsModule } from '../ws/ws.module';
  * Users Module
  *
  * Manages user-related functionality including user profile management
- * and synchronization with Keycloak OIDC.
+ * and local authentication.
  *
  * The module exports UsersService to allow other modules (like AuthModule)
  * to access user data and perform synchronization.

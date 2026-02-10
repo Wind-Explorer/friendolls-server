@@ -20,29 +20,31 @@ describe('FriendsService', () => {
 
   const mockUser1 = {
     id: 'user-1',
-    keycloakSub: 'f:realm:user1',
+    keycloakSub: 'legacy-sub-1',
     email: 'user1@example.com',
     name: 'User One',
     username: 'user1',
     picture: null,
     roles: [],
+    passwordHash: null,
     lastLoginAt: new Date(),
     createdAt: new Date(),
     updatedAt: new Date(),
-  };
+  } as unknown as { passwordHash: string | null } & Record<string, unknown>;
 
   const mockUser2 = {
     id: 'user-2',
-    keycloakSub: 'f:realm:user2',
+    keycloakSub: 'legacy-sub-2',
     email: 'user2@example.com',
     name: 'User Two',
     username: 'user2',
     picture: null,
     roles: [],
+    passwordHash: null,
     lastLoginAt: new Date(),
     createdAt: new Date(),
     updatedAt: new Date(),
-  };
+  } as unknown as { passwordHash: string | null } & Record<string, unknown>;
 
   const mockFriendRequest = {
     id: 'request-1',

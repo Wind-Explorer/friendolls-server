@@ -9,7 +9,7 @@ describe('JwtVerificationService', () => {
     const mockConfigService = {
       get: jest.fn((key: string) => {
         const config: Record<string, string> = {
-          JWKS_URI: 'https://test.com/.well-known/jwks.json',
+          JWT_SECRET: 'test-secret',
           JWT_ISSUER: 'https://test.com',
           JWT_AUDIENCE: 'test-audience',
         };

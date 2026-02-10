@@ -5,6 +5,7 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtVerificationService } from './services/jwt-verification.service';
 import { UsersModule } from '../users/users.module';
+import { AuthController } from './auth.controller';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { UsersModule } from '../users/users.module';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     forwardRef(() => UsersModule),
   ],
+  controllers: [AuthController],
   providers: [JwtStrategy, AuthService, JwtVerificationService],
   exports: [AuthService, PassportModule, JwtVerificationService],
 })

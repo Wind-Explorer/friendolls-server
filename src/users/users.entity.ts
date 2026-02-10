@@ -3,7 +3,7 @@ import { User as PrismaUser } from '@prisma/client';
 
 /**
  * User entity representing a user in the system.
- * Users are synced from Keycloak via OIDC authentication.
+ * Users are authenticated via local JWT-based auth.
  *
  * This is a re-export of the Prisma User type for consistency.
  * Swagger decorators are applied at the controller level.
@@ -14,7 +14,7 @@ export type User = PrismaUser;
  * User response DTO for Swagger documentation
  * This class is only used for API documentation purposes
  */
-export class UserResponseDto implements PrismaUser {
+export class UserResponseDto {
   @ApiProperty({
     description: 'Internal unique identifier',
     example: '550e8400-e29b-41d4-a716-446655440000',
@@ -22,10 +22,10 @@ export class UserResponseDto implements PrismaUser {
   id: string;
 
   @ApiProperty({
-    description: 'Keycloak subject identifier from the JWT token',
+    description: 'Legacy Keycloak subject identifier (migration only)',
     example: 'f:a1b2c3d4-e5f6-7890-abcd-ef1234567890:johndoe',
   })
-  keycloakSub: string;
+  keycloakSub: string | null;
 
   @ApiProperty({
     description: "User's display name",
@@ -40,7 +40,7 @@ export class UserResponseDto implements PrismaUser {
   email: string;
 
   @ApiProperty({
-    description: "User's preferred username from Keycloak",
+    description: "User's preferred username",
     example: 'johndoe',
     required: false,
     nullable: true,
@@ -56,7 +56,7 @@ export class UserResponseDto implements PrismaUser {
   picture: string | null;
 
   @ApiProperty({
-    description: "User's roles from Keycloak",
+    description: "User's roles",
     example: ['user', 'premium'],
     type: [String],
     isArray: true,

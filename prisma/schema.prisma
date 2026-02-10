@@ -9,20 +9,20 @@ datasource db {
   provider = "postgresql"
 }
 
-/// User model representing authenticated users from Keycloak OIDC
+/// User model representing authenticated users from local auth
 model User {
   /// Internal unique identifier (UUID)
   id String @id @default(uuid())
 
-  /// Keycloak subject identifier (unique per user in Keycloak)
-  /// This is the 'sub' claim from the JWT token
-  keycloakSub String @unique @map("keycloak_sub")
+  /// Keycloak subject identifier (legacy for migration)
+  /// This is the 'sub' claim from the old JWT token
+  keycloakSub String? @unique @map("keycloak_sub")
 
   /// User's display name
   name String
 
   /// User's email address
-  email String
+  email String @unique
 
   /// User's preferred username from Keycloak
   username String?
@@ -32,6 +32,9 @@ model User {
 
   /// User's roles from Keycloak (stored as JSON array)
   roles String[]
+
+  /// Password hash for local authentication
+  passwordHash String? @map("password_hash")
 
   /// Timestamp when the user was first created in the system
   createdAt DateTime @default(now()) @map("created_at")

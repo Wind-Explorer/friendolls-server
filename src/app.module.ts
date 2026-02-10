@@ -18,12 +18,7 @@ import { DollsModule } from './dolls/dolls.module';
  * Returns the validated config.
  */
 function validateEnvironment(config: Record<string, any>): Record<string, any> {
-  const requiredVars = [
-    'JWKS_URI',
-    'JWT_ISSUER',
-    'JWT_AUDIENCE',
-    'DATABASE_URL',
-  ];
+  const requiredVars = ['JWT_SECRET', 'DATABASE_URL'];
 
   const missingVars = requiredVars.filter((varName) => !config[varName]);
 

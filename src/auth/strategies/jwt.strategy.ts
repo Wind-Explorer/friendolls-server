@@ -1,83 +1,48 @@
 import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
 import { Strategy, ExtractJwt } from 'passport-jwt';
-
-import { passportJwtSecret } from 'jwks-rsa';
+import { ConfigService } from '@nestjs/config';
 
 /**
- * JWT payload interface representing the decoded token from Keycloak
+ * JWT payload interface representing the decoded token
  */
 export interface JwtPayload {
-  sub: string; // Subject (user identifier in Keycloak)
-  email?: string;
-  name?: string;
-  preferred_username?: string;
-  picture?: string;
-  realm_access?: {
-    roles: string[];
-  };
-  resource_access?: {
-    [key: string]: {
-      roles: string[];
-    };
-  };
-  session_state?: string;
-  iss: string; // Issuer
-  aud: string | string[]; // Audience
-  exp: number; // Expiration time
-  iat: number; // Issued at
+  sub: string; // User ID
+  email: string;
+  roles?: string[];
+  iss: string;
+  aud?: string;
+  exp: number;
+  iat: number;
 }
 
 /**
- * JWT Strategy for validating Keycloak-issued JWT tokens.
- * This strategy validates tokens against Keycloak's public keys (JWKS)
- * and extracts user information from the token payload.
+ * JWT Strategy for validating locally issued JWT tokens.
  */
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   private readonly logger = new Logger(JwtStrategy.name);
 
   constructor(private configService: ConfigService) {
-    const jwksUri = configService.get<string>('JWKS_URI');
-    const issuer = configService.get<string>('JWT_ISSUER');
+    const jwtSecret = configService.get<string>('JWT_SECRET');
+    const issuer = configService.get<string>('JWT_ISSUER') || 'friendolls';
     const audience = configService.get<string>('JWT_AUDIENCE');
 
-    if (!jwksUri) {
-      throw new Error('JWKS_URI must be configured in environment variables');
-    }
-
-    if (!issuer) {
-      throw new Error('JWT_ISSUER must be configured in environment variables');
+    if (!jwtSecret) {
+      throw new Error('JWT_SECRET must be configured in environment variables');
     }
 
     super({
       // Extract JWT from Authorization header as Bearer token
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-
-      // Use JWKS to fetch and cache Keycloak's public keys for signature verification
-      secretOrKeyProvider: passportJwtSecret({
-        cache: true,
-        rateLimit: true,
-        jwksRequestsPerMinute: 5,
-        jwksUri,
-      }),
-
-      // Verify the issuer matches our Keycloak realm
+      secretOrKey: jwtSecret,
       issuer,
-
-      // Verify the audience matches our client ID
       audience,
-
-      // Automatically reject expired tokens
       ignoreExpiration: false,
-
-      // Use RS256 algorithm (Keycloak's default)
-      algorithms: ['RS256'],
+      algorithms: ['HS256'],
     });
 
     this.logger.log(`JWT Strategy initialized`);
-    this.logger.log(`  JWKS URI: ${jwksUri}`);
     this.logger.log(`  Issuer: ${issuer}`);
     this.logger.log(`  Audience: ${audience || 'NOT SET'}`);
   }
@@ -91,19 +56,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
    * @throws UnauthorizedException if the payload is invalid
    */
   async validate(payload: JwtPayload): Promise<{
-    keycloakSub: string;
-    email?: string;
-    name?: string;
-    username?: string;
-    picture?: string;
+    userId: string;
+    email: string;
     roles?: string[];
-    sessionState?: string;
   }> {
     this.logger.debug(`Validating JWT token payload`);
     this.logger.debug(`  Issuer: ${payload.iss}`);
-    this.logger.debug(
-      `  Audience: ${Array.isArray(payload.aud) ? payload.aud.join(',') : payload.aud}`,
-    );
+    if (payload.aud) {
+      this.logger.debug(`  Audience: ${payload.aud}`);
+    }
     this.logger.debug(`  Subject: ${payload.sub}`);
     this.logger.debug(
       `  Expires: ${new Date(payload.exp * 1000).toISOString()}`,
@@ -114,31 +75,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid token: missing subject');
     }
 
-    // Extract roles from Keycloak's realm_access and resource_access
-    const roles: string[] = [];
-
-    if (payload.realm_access?.roles) {
-      roles.push(...payload.realm_access.roles);
-    }
-
-    const clientId = this.configService.get<string>('KEYCLOAK_CLIENT_ID');
-    if (clientId && payload.resource_access?.[clientId]?.roles) {
-      roles.push(...payload.resource_access[clientId].roles);
-    }
-
-    // Return user object that will be attached to request.user
     const user = {
-      keycloakSub: payload.sub,
+      userId: payload.sub,
       email: payload.email,
-      name: payload.name,
-      username: payload.preferred_username,
-      picture: payload.picture,
-      roles: roles.length > 0 ? roles : undefined,
-      sessionState: payload.session_state,
+      roles:
+        payload.roles && payload.roles.length > 0 ? payload.roles : undefined,
     };
 
     this.logger.log(
-      `✅ Successfully validated token for user: ${payload.sub} (${payload.email ?? payload.preferred_username ?? 'no email'})`,
+      `✅ Successfully validated token for user: ${payload.sub} (${payload.email})`,
     );
 
     return Promise.resolve(user);

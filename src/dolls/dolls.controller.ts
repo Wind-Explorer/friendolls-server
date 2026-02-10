@@ -24,17 +24,13 @@ import {
   CurrentUser,
   type AuthenticatedUser,
 } from '../auth/decorators/current-user.decorator';
-import { AuthService } from '../auth/auth.service';
 
 @ApiTags('dolls')
 @Controller('dolls')
 @UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class DollsController {
-  constructor(
-    private readonly dollsService: DollsService,
-    private readonly authService: AuthService,
-  ) {}
+  constructor(private readonly dollsService: DollsService) {}
 
   @Post()
   @ApiOperation({
@@ -51,8 +47,7 @@ export class DollsController {
     @CurrentUser() authUser: AuthenticatedUser,
     @Body() createDollDto: CreateDollDto,
   ) {
-    const user = await this.authService.ensureUserExists(authUser);
-    return this.dollsService.create(user.id, createDollDto);
+    return this.dollsService.create(authUser.userId, createDollDto);
   }
 
   @Get('me')
@@ -66,8 +61,7 @@ export class DollsController {
   })
   @ApiUnauthorizedResponse({ description: 'Unauthorized' })
   async listMyDolls(@CurrentUser() authUser: AuthenticatedUser) {
-    const user = await this.authService.ensureUserExists(authUser);
-    return this.dollsService.listByOwner(user.id, user.id);
+    return this.dollsService.listByOwner(authUser.userId, authUser.userId);
   }
 
   @Get('user/:userId')
@@ -89,8 +83,7 @@ export class DollsController {
     @CurrentUser() authUser: AuthenticatedUser,
     @Param('userId') userId: string,
   ) {
-    const user = await this.authService.ensureUserExists(authUser);
-    return this.dollsService.listByOwner(userId, user.id);
+    return this.dollsService.listByOwner(userId, authUser.userId);
   }
 
   @Get(':id')
@@ -109,8 +102,7 @@ export class DollsController {
     @CurrentUser() authUser: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    const user = await this.authService.ensureUserExists(authUser);
-    return this.dollsService.findOne(id, user.id);
+    return this.dollsService.findOne(id, authUser.userId);
   }
 
   @Patch(':id')
@@ -130,8 +122,7 @@ export class DollsController {
     @Param('id') id: string,
     @Body() updateDollDto: UpdateDollDto,
   ) {
-    const user = await this.authService.ensureUserExists(authUser);
-    return this.dollsService.update(id, user.id, updateDollDto);
+    return this.dollsService.update(id, authUser.userId, updateDollDto);
   }
 
   @Delete(':id')
@@ -151,7 +142,6 @@ export class DollsController {
     @CurrentUser() authUser: AuthenticatedUser,
     @Param('id') id: string,
   ) {
-    const user = await this.authService.ensureUserExists(authUser);
-    return this.dollsService.remove(id, user.id);
+    return this.dollsService.remove(id, authUser.userId);
   }
 }

@@ -5,13 +5,9 @@ import { createParamDecorator, ExecutionContext } from '@nestjs/common';
  * This matches the object returned by JwtStrategy.validate()
  */
 export interface AuthenticatedUser {
-  keycloakSub: string;
-  email?: string;
-  name?: string;
-  username?: string;
-  picture?: string;
+  userId: string;
+  email: string;
   roles?: string[];
-  sessionState?: string;
 }
 
 /**
@@ -34,8 +30,8 @@ export interface AuthenticatedUser {
  * ```typescript
  * @Get('profile')
  * @UseGuards(JwtAuthGuard)
- * async getProfile(@CurrentUser('keycloakSub') sub: string) {
- *   return { sub };
+ * async getProfile(@CurrentUser('userId') userId: string) {
+ *   return { userId };
  * }
  * ```
  */

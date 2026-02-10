@@ -2,7 +2,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
-import { AuthService } from '../auth/auth.service';
 import { User } from './users.entity';
 import type { UpdateUserDto } from './dto/update-user.dto';
 import type { AuthenticatedUser } from '../auth/decorators/current-user.decorator';
@@ -13,45 +12,33 @@ describe('UsersController', () => {
   const mockFindOne = jest.fn();
   const mockUpdate = jest.fn();
   const mockDelete = jest.fn();
-  const mockFindByKeycloakSub = jest.fn();
-
-  const mockSyncUserFromToken = jest.fn();
 
   const mockUsersService = {
     findOne: mockFindOne,
     update: mockUpdate,
     delete: mockDelete,
-    findByKeycloakSub: mockFindByKeycloakSub,
-  };
-
-  const mockEnsureUserExists = jest.fn();
-
-  const mockAuthService = {
-    syncUserFromToken: mockSyncUserFromToken,
-    ensureUserExists: mockEnsureUserExists,
   };
 
   const mockAuthUser: AuthenticatedUser = {
-    keycloakSub: 'f:realm:user123',
+    userId: 'uuid-123',
     email: 'test@example.com',
-    name: 'Test User',
-    username: 'testuser',
     roles: ['user'],
   };
 
-  const mockUser: User = {
+  const mockUser = {
     id: 'uuid-123',
-    keycloakSub: 'f:realm:user123',
+    keycloakSub: 'legacy-sub',
     email: 'test@example.com',
     name: 'Test User',
     username: 'testuser',
     picture: null,
     roles: ['user'],
+    passwordHash: null,
     createdAt: new Date('2024-01-01'),
     updatedAt: new Date('2024-01-01'),
     lastLoginAt: new Date('2024-01-01'),
     activeDollId: null,
-  };
+  } as unknown as User & { passwordHash: string | null };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -60,10 +47,6 @@ describe('UsersController', () => {
         {
           provide: UsersService,
           useValue: mockUsersService,
-        },
-        {
-          provide: AuthService,
-          useValue: mockAuthService,
         },
       ],
     }).compile();
@@ -79,13 +62,13 @@ describe('UsersController', () => {
   });
 
   describe('getCurrentUser', () => {
-    it('should return the current user and sync from token', async () => {
-      mockSyncUserFromToken.mockResolvedValue(mockUser);
+    it('should return the current user', async () => {
+      mockFindOne.mockResolvedValue(mockUser);
 
       const result = await controller.getCurrentUser(mockAuthUser);
 
       expect(result).toBe(mockUser);
-      expect(mockSyncUserFromToken).toHaveBeenCalledWith(mockAuthUser);
+      expect(mockFindOne).toHaveBeenCalledWith(mockAuthUser.userId);
     });
   });
 
@@ -94,7 +77,6 @@ describe('UsersController', () => {
       const updateDto: UpdateUserDto = { name: 'Updated Name' };
       const updatedUser = { ...mockUser, name: 'Updated Name' };
 
-      mockEnsureUserExists.mockResolvedValue(mockUser);
       mockUpdate.mockResolvedValue(updatedUser);
 
       const result = await controller.updateCurrentUser(
@@ -103,11 +85,10 @@ describe('UsersController', () => {
       );
 
       expect(result).toBe(updatedUser);
-      expect(mockEnsureUserExists).toHaveBeenCalledWith(mockAuthUser);
       expect(mockUpdate).toHaveBeenCalledWith(
-        mockUser.id,
+        mockAuthUser.userId,
         updateDto,
-        mockAuthUser.keycloakSub,
+        mockAuthUser.userId,
       );
     });
   });
@@ -160,7 +141,7 @@ describe('UsersController', () => {
       expect(mockUpdate).toHaveBeenCalledWith(
         mockUser.id,
         updateDto,
-        mockAuthUser.keycloakSub,
+        mockAuthUser.userId,
       );
     });
 
@@ -189,15 +170,13 @@ describe('UsersController', () => {
 
   describe('deleteCurrentUser', () => {
     it('should delete the current user account', async () => {
-      mockEnsureUserExists.mockResolvedValue(mockUser);
       mockDelete.mockResolvedValue(undefined);
 
       await controller.deleteCurrentUser(mockAuthUser);
 
-      expect(mockEnsureUserExists).toHaveBeenCalledWith(mockAuthUser);
       expect(mockDelete).toHaveBeenCalledWith(
-        mockUser.id,
-        mockAuthUser.keycloakSub,
+        mockAuthUser.userId,
+        mockAuthUser.userId,
       );
     });
   });
@@ -208,10 +187,7 @@ describe('UsersController', () => {
 
       await controller.delete(mockUser.id, mockAuthUser);
 
-      expect(mockDelete).toHaveBeenCalledWith(
-        mockUser.id,
-        mockAuthUser.keycloakSub,
-      );
+      expect(mockDelete).toHaveBeenCalledWith(mockUser.id, mockAuthUser.userId);
     });
 
     it('should throw ForbiddenException if deleting another user', async () => {

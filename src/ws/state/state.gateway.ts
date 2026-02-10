@@ -15,7 +15,6 @@ import {
   REDIS_SUBSCRIBER_CLIENT,
 } from '../../database/redis.module';
 import type { AuthenticatedSocket } from '../../types/socket';
-import { AuthService } from '../../auth/auth.service';
 import { JwtVerificationService } from '../../auth/services/jwt-verification.service';
 import { CursorPositionDto } from '../dto/cursor-position.dto';
 import { UserStatusDto } from '../dto/user-status.dto';
@@ -25,6 +24,7 @@ import { PrismaService } from '../../database/prisma.service';
 import { UserSocketService } from './user-socket.service';
 import { WsNotificationService } from './ws-notification.service';
 import { WS_EVENT, REDIS_CHANNEL } from './ws-events';
+import { UsersService } from '../../users/users.service';
 
 const USER_STATUS_BROADCAST_THROTTLING_MS = 200;
 
@@ -43,9 +43,9 @@ export class StateGateway
   @WebSocketServer() io: Server;
 
   constructor(
-    private readonly authService: AuthService,
     private readonly jwtVerificationService: JwtVerificationService,
     private readonly prisma: PrismaService,
+    private readonly usersService: UsersService,
     private readonly userSocketService: UserSocketService,
     private readonly wsNotificationService: WsNotificationService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis | null,
@@ -118,7 +118,7 @@ export class StateGateway
     }
   }
 
-  async handleConnection(client: AuthenticatedSocket) {
+  handleConnection(client: AuthenticatedSocket) {
     try {
       this.logger.debug(
         `Connection attempt - handshake auth: ${JSON.stringify(client.handshake.auth)}`,
@@ -135,18 +135,16 @@ export class StateGateway
         return;
       }
 
-      const payload = await this.jwtVerificationService.verifyToken(token);
+      const payload = this.jwtVerificationService.verifyToken(token);
 
       if (!payload.sub) {
         throw new WsException('Invalid token: missing subject');
       }
 
       client.data.user = {
-        keycloakSub: payload.sub,
+        userId: payload.sub,
         email: payload.email,
-        name: payload.name,
-        username: payload.preferred_username,
-        picture: payload.picture,
+        roles: payload.roles,
       };
 
       // Initialize defaults
@@ -186,17 +184,15 @@ export class StateGateway
           throw new WsException('Unauthorized: No user data found');
         }
 
-        const payload = await this.jwtVerificationService.verifyToken(token);
+        const payload = this.jwtVerificationService.verifyToken(token);
         if (!payload.sub) {
           throw new WsException('Invalid token: missing subject');
         }
 
         userTokenData = {
-          keycloakSub: payload.sub,
+          userId: payload.sub,
           email: payload.email,
-          name: payload.name,
-          username: payload.preferred_username,
-          picture: payload.picture,
+          roles: payload.roles,
         };
         client.data.user = userTokenData;
 
@@ -209,8 +205,7 @@ export class StateGateway
         );
       }
 
-      // 1. Sync user from token (DB Write/Read)
-      const user = await this.authService.syncUserFromToken(userTokenData);
+      const user = await this.usersService.findOne(userTokenData.userId);
 
       // 2. Register socket mapping (Redis Write)
       await this.userSocketService.setSocket(user.id, client.id);
@@ -283,7 +278,7 @@ export class StateGateway
     }
 
     this.logger.log(
-      `Client id: ${client.id} disconnected (user: ${user?.keycloakSub || 'unknown'})`,
+      `Client id: ${client.id} disconnected (user: ${user?.userId || 'unknown'})`,
     );
   }
 
@@ -438,9 +433,15 @@ export class StateGateway
     }
 
     // 3. Construct payload
+    const sender = await this.prisma.user.findUnique({
+      where: { id: currentUserId },
+      select: { name: true, username: true },
+    });
+    const senderName = sender?.name || sender?.username || 'Unknown';
+
     const payload: InteractionPayloadDto = {
       senderUserId: currentUserId,
-      senderName: user.name || user.username || 'Unknown',
+      senderName,
       content: data.content,
       type: data.type,
       timestamp: new Date().toISOString(),

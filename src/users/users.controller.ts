@@ -8,7 +8,6 @@ import {
   HttpCode,
   UseGuards,
   Logger,
-  Post,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,7 +17,6 @@ import {
   ApiBearerAuth,
   ApiUnauthorizedResponse,
   ApiForbiddenResponse,
-  ApiNoContentResponse,
 } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { User, UserResponseDto } from './users.entity';
@@ -28,17 +26,12 @@ import {
   CurrentUser,
   type AuthenticatedUser,
 } from '../auth/decorators/current-user.decorator';
-import { AuthService } from '../auth/auth.service';
-import { LogoutRequestDto } from './dto/logout-request.dto';
 
 /**
  * Users Controller
  *
  * Handles user-related HTTP endpoints.
- * All endpoints require authentication via Keycloak JWT token.
- *
- * Note: User creation is handled automatically during authentication flow.
- * Users cannot be created directly via API - they must authenticate via Keycloak.
+ * All endpoints require authentication via JWT.
  */
 @ApiTags('users')
 @Controller('users')
@@ -47,43 +40,15 @@ import { LogoutRequestDto } from './dto/logout-request.dto';
 export class UsersController {
   private readonly logger = new Logger(UsersController.name);
 
-  constructor(
-    private readonly usersService: UsersService,
-    private readonly authService: AuthService,
-  ) {}
-
-  /**
-   * Logout current authenticated session by revoking the refresh token.
-   * Falls back to local cleanup only if revocation fails.
-   */
-  @Post('logout')
-  @HttpCode(204)
-  @ApiOperation({ summary: 'Logout current session' })
-  @ApiNoContentResponse({ description: 'Session logged out' })
-  @ApiUnauthorizedResponse({ description: 'Invalid or missing JWT token' })
-  async logout(
-    @CurrentUser() authUser: AuthenticatedUser,
-    @Body() body: LogoutRequestDto,
-  ): Promise<void> {
-    this.logger.log(`Logout requested for ${authUser.keycloakSub}`);
-    const refreshToken = body.refreshToken;
-
-    const revoked = await this.authService.revokeToken(refreshToken);
-    if (!revoked) {
-      this.logger.warn('Token revocation failed or was skipped');
-    }
-  }
+  constructor(private readonly usersService: UsersService) {}
 
   /**
    * Get current authenticated user's profile.
-   * This endpoint syncs the user from Keycloak token to ensure profile data
-   * is up-to-date when explicitly requested by the user.
    */
   @Get('me')
   @ApiOperation({
     summary: 'Get current user profile',
-    description:
-      'Returns the authenticated user profile. Automatically syncs data from Keycloak token.',
+    description: 'Returns the authenticated user profile.',
   })
   @ApiResponse({
     status: 200,
@@ -96,13 +61,9 @@ export class UsersController {
   async getCurrentUser(
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<User> {
-    this.logger.debug(`Get current user: ${authUser.keycloakSub}`);
+    this.logger.debug(`Get current user: ${authUser.userId}`);
 
-    // Sync user from token - this is one of the few endpoints that should
-    // actively sync profile data, as it's an explicit request for user info
-    const user = await this.authService.syncUserFromToken(authUser);
-
-    return user;
+    return this.usersService.findOne(authUser.userId);
   }
 
   /**
@@ -130,16 +91,12 @@ export class UsersController {
     @CurrentUser() authUser: AuthenticatedUser,
     @Body() updateUserDto: UpdateUserDto,
   ): Promise<User> {
-    this.logger.log(`Update current user: ${authUser.keycloakSub}`);
+    this.logger.log(`Update current user: ${authUser.userId}`);
 
-    // First ensure user exists in our system
-    const user = await this.authService.ensureUserExists(authUser);
-
-    // Update the user's profile
     return this.usersService.update(
-      user.id,
+      authUser.userId,
       updateUserDto,
-      authUser.keycloakSub,
+      authUser.userId,
     );
   }
 
@@ -175,7 +132,7 @@ export class UsersController {
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<User> {
     this.logger.debug(
-      `Get user by ID: ${id} (requested by ${authUser.keycloakSub})`,
+      `Get user by ID: ${id} (requested by ${authUser.userId})`,
     );
     return this.usersService.findOne(id);
   }
@@ -219,20 +176,20 @@ export class UsersController {
     @Body() updateUserDto: UpdateUserDto,
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<User> {
-    this.logger.log(`Update user ${id} (requested by ${authUser.keycloakSub})`);
-    return this.usersService.update(id, updateUserDto, authUser.keycloakSub);
+    this.logger.log(`Update user ${id} (requested by ${authUser.userId})`);
+    return this.usersService.update(id, updateUserDto, authUser.userId);
   }
 
   /**
    * Delete current authenticated user's account.
    * Note: This only deletes the local user record.
-   * The user still exists in Keycloak and can re-authenticate.
+   * The user data is deleted locally.
    */
   @Delete('me')
   @ApiOperation({
     summary: 'Delete current user account',
     description:
-      'Deletes the authenticated user account. Only removes local data; user still exists in Keycloak.',
+      'Deletes the authenticated user account. Only removes local data.',
   })
   @ApiResponse({
     status: 204,
@@ -245,13 +202,9 @@ export class UsersController {
   async deleteCurrentUser(
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<void> {
-    this.logger.log(`Delete current user: ${authUser.keycloakSub}`);
+    this.logger.log(`Delete current user: ${authUser.userId}`);
 
-    // First ensure user exists in our system
-    const user = await this.authService.ensureUserExists(authUser);
-
-    // Delete the user's account
-    await this.usersService.delete(user.id, authUser.keycloakSub);
+    await this.usersService.delete(authUser.userId, authUser.userId);
   }
 
   /**
@@ -262,7 +215,7 @@ export class UsersController {
   @ApiOperation({
     summary: 'Delete a user by ID',
     description:
-      'Deletes a user account. Users can only delete their own account. Only removes local data; user still exists in Keycloak.',
+      'Deletes a user account. Users can only delete their own account.',
   })
   @ApiParam({
     name: 'id',
@@ -288,8 +241,8 @@ export class UsersController {
     @Param('id') id: string,
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<void> {
-    this.logger.log(`Delete user ${id} (requested by ${authUser.keycloakSub})`);
-    await this.usersService.delete(id, authUser.keycloakSub);
+    this.logger.log(`Delete user ${id} (requested by ${authUser.userId})`);
+    await this.usersService.delete(id, authUser.userId);
   }
 
   /**
@@ -327,16 +280,12 @@ export class UsersController {
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<User> {
     this.logger.log(
-      `Set active doll ${dollId} (requested by ${authUser.keycloakSub})`,
+      `Set active doll ${dollId} (requested by ${authUser.userId})`,
     );
-
-    // First ensure user exists in our system
-    const user = await this.authService.ensureUserExists(authUser);
-
     return this.usersService.setActiveDoll(
-      user.id,
+      authUser.userId,
       dollId,
-      authUser.keycloakSub,
+      authUser.userId,
     );
   }
 
@@ -359,13 +308,8 @@ export class UsersController {
   async removeActiveDoll(
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<User> {
-    this.logger.log(
-      `Remove active doll (requested by ${authUser.keycloakSub})`,
-    );
+    this.logger.log(`Remove active doll (requested by ${authUser.userId})`);
 
-    // First ensure user exists in our system
-    const user = await this.authService.ensureUserExists(authUser);
-
-    return this.usersService.removeActiveDoll(user.id, authUser.keycloakSub);
+    return this.usersService.removeActiveDoll(authUser.userId, authUser.userId);
   }
 }

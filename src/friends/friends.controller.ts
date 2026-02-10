@@ -27,7 +27,6 @@ import {
   CurrentUser,
   type AuthenticatedUser,
 } from '../auth/decorators/current-user.decorator';
-import { AuthService } from '../auth/auth.service';
 import { SendFriendRequestDto } from './dto/send-friend-request.dto';
 import {
   FriendRequestResponseDto,
@@ -60,7 +59,6 @@ export class FriendsController {
   constructor(
     private readonly friendsService: FriendsService,
     private readonly usersService: UsersService,
-    private readonly authService: AuthService,
   ) {}
 
   @Get('search')
@@ -87,15 +85,13 @@ export class FriendsController {
     @Query() searchDto: SearchUsersDto,
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<UserBasicDto[]> {
-    const user = await this.authService.ensureUserExists(authUser);
-
     this.logger.debug(
       `Searching users with username: ${searchDto.username || 'all'}`,
     );
 
     const users = await this.usersService.searchUsers(
       searchDto.username,
-      user.id,
+      authUser.userId,
     );
 
     return users.map((u: User) => ({
@@ -135,14 +131,12 @@ export class FriendsController {
     @Body() sendRequestDto: SendFriendRequestDto,
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<FriendRequestResponseDto> {
-    const user = await this.authService.ensureUserExists(authUser);
-
     this.logger.log(
-      `User ${user.id} sending friend request to ${sendRequestDto.receiverId}`,
+      `User ${authUser.userId} sending friend request to ${sendRequestDto.receiverId}`,
     );
 
     const friendRequest = await this.friendsService.sendFriendRequest(
-      user.id,
+      authUser.userId,
       sendRequestDto.receiverId,
     );
 
@@ -165,12 +159,12 @@ export class FriendsController {
   async getReceivedRequests(
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<FriendRequestResponseDto[]> {
-    const user = await this.authService.ensureUserExists(authUser);
-
-    this.logger.debug(`Getting received friend requests for user ${user.id}`);
+    this.logger.debug(
+      `Getting received friend requests for user ${authUser.userId}`,
+    );
 
     const requests = await this.friendsService.getPendingReceivedRequests(
-      user.id,
+      authUser.userId,
     );
 
     return requests.map((req) => this.mapFriendRequestToDto(req));
@@ -192,11 +186,13 @@ export class FriendsController {
   async getSentRequests(
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<FriendRequestResponseDto[]> {
-    const user = await this.authService.ensureUserExists(authUser);
+    this.logger.debug(
+      `Getting sent friend requests for user ${authUser.userId}`,
+    );
 
-    this.logger.debug(`Getting sent friend requests for user ${user.id}`);
-
-    const requests = await this.friendsService.getPendingSentRequests(user.id);
+    const requests = await this.friendsService.getPendingSentRequests(
+      authUser.userId,
+    );
 
     return requests.map((req) => this.mapFriendRequestToDto(req));
   }
@@ -231,13 +227,13 @@ export class FriendsController {
     @Param('id') requestId: string,
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<FriendRequestResponseDto> {
-    const user = await this.authService.ensureUserExists(authUser);
-
-    this.logger.log(`User ${user.id} accepting friend request ${requestId}`);
+    this.logger.log(
+      `User ${authUser.userId} accepting friend request ${requestId}`,
+    );
 
     const friendRequest = await this.friendsService.acceptFriendRequest(
       requestId,
-      user.id,
+      authUser.userId,
     );
 
     return this.mapFriendRequestToDto(friendRequest);
@@ -273,13 +269,13 @@ export class FriendsController {
     @Param('id') requestId: string,
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<FriendRequestResponseDto> {
-    const user = await this.authService.ensureUserExists(authUser);
-
-    this.logger.log(`User ${user.id} denying friend request ${requestId}`);
+    this.logger.log(
+      `User ${authUser.userId} denying friend request ${requestId}`,
+    );
 
     const friendRequest = await this.friendsService.denyFriendRequest(
       requestId,
-      user.id,
+      authUser.userId,
     );
 
     return this.mapFriendRequestToDto(friendRequest);
@@ -301,11 +297,9 @@ export class FriendsController {
   async getFriends(
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<FriendshipResponseDto[]> {
-    const user = await this.authService.ensureUserExists(authUser);
+    this.logger.debug(`Getting friends list for user ${authUser.userId}`);
 
-    this.logger.debug(`Getting friends list for user ${user.id}`);
-
-    const friendships = await this.friendsService.getFriends(user.id);
+    const friendships = await this.friendsService.getFriends(authUser.userId);
 
     return friendships.map((friendship) => {
       // Use Prisma generated type for safe casting
@@ -366,11 +360,9 @@ export class FriendsController {
     @Param('friendId') friendId: string,
     @CurrentUser() authUser: AuthenticatedUser,
   ): Promise<void> {
-    const user = await this.authService.ensureUserExists(authUser);
+    this.logger.log(`User ${authUser.userId} unfriending user ${friendId}`);
 
-    this.logger.log(`User ${user.id} unfriending user ${friendId}`);
-
-    await this.friendsService.unfriend(user.id, friendId);
+    await this.friendsService.unfriend(authUser.userId, friendId);
   }
 
   private mapFriendRequestToDto(

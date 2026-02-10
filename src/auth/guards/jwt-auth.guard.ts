@@ -2,12 +2,12 @@ import { ExecutionContext, Injectable, Logger } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { Observable } from 'rxjs';
 import type { Request } from 'express';
-import { User } from 'src/users/users.entity';
+import type { AuthenticatedUser } from '../decorators/current-user.decorator';
 
 /**
  * JWT Authentication Guard
  *
- * This guard protects routes by requiring a valid JWT token from Keycloak.
+ * This guard protects routes by requiring a valid JWT token.
  * It uses the JwtStrategy to validate the token and attach user info to the request.
  *
  * Usage:
@@ -57,7 +57,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 
   handleRequest(
     err: any,
-    user: User,
+    user: AuthenticatedUser,
     info: any,
     context: ExecutionContext,
     status?: any,
@@ -82,7 +82,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
       }
     } else {
       this.logger.debug(
-        `✅ JWT Authentication successful for user: ${user.keycloakSub || 'unknown'}`,
+        `✅ JWT Authentication successful for user: ${user.userId || 'unknown'}`,
       );
     }
 

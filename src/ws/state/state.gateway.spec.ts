@@ -2,8 +2,8 @@ import { CursorPositionDto } from '../dto/cursor-position.dto';
 import { Test, TestingModule } from '@nestjs/testing';
 import { StateGateway } from './state.gateway';
 import { AuthenticatedSocket } from '../../types/socket';
-import { AuthService } from '../../auth/auth.service';
 import { JwtVerificationService } from '../../auth/services/jwt-verification.service';
+import { UsersService } from '../../users/users.service';
 import { PrismaService } from '../../database/prisma.service';
 import { UserSocketService } from './user-socket.service';
 import { WsNotificationService } from './ws-notification.service';
@@ -12,15 +12,13 @@ import { WsException } from '@nestjs/websockets';
 
 import { UserStatusDto, UserState } from '../dto/user-status.dto';
 
-interface MockSocket extends Partial<AuthenticatedSocket> {
+type MockSocket = {
   id: string;
   data: {
     user?: {
-      keycloakSub: string;
-      email?: string;
-      name?: string;
-      preferred_username?: string;
-      picture?: string;
+      userId: string;
+      email: string;
+      roles?: string[];
     };
     userId?: string;
     activeDollId?: string | null;
@@ -29,7 +27,7 @@ interface MockSocket extends Partial<AuthenticatedSocket> {
   handshake?: any;
   disconnect?: jest.Mock;
   emit?: jest.Mock;
-}
+};
 
 describe('StateGateway', () => {
   let gateway: StateGateway;
@@ -41,7 +39,7 @@ describe('StateGateway', () => {
     sockets: { sockets: { size: number; get: jest.Mock } };
     to: jest.Mock;
   };
-  let mockAuthService: Partial<AuthService>;
+  let mockUsersService: Partial<UsersService>;
   let mockJwtVerificationService: Partial<JwtVerificationService>;
   let mockPrismaService: Partial<PrismaService>;
   let mockUserSocketService: Partial<UserSocketService>;
@@ -69,16 +67,15 @@ describe('StateGateway', () => {
       }),
     };
 
-    mockAuthService = {
-      syncUserFromToken: jest.fn().mockResolvedValue({
+    mockUsersService = {
+      findOne: jest.fn().mockResolvedValue({
         id: 'user-id',
-        keycloakSub: 'test-sub',
       }),
     };
 
     mockJwtVerificationService = {
       extractToken: jest.fn((handshake) => handshake.auth?.token),
-      verifyToken: jest.fn().mockResolvedValue({
+      verifyToken: jest.fn().mockReturnValue({
         sub: 'test-sub',
         email: 'test@example.com',
       }),
@@ -122,7 +119,7 @@ describe('StateGateway', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         StateGateway,
-        { provide: AuthService, useValue: mockAuthService },
+        { provide: UsersService, useValue: mockUsersService },
         {
           provide: JwtVerificationService,
           useValue: mockJwtVerificationService,
@@ -172,7 +169,7 @@ describe('StateGateway', () => {
   });
 
   describe('handleConnection', () => {
-    it('should verify token and set basic user data (but NOT sync DB)', async () => {
+    it('should verify token and set basic user data (but NOT sync DB)', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {},
@@ -183,9 +180,7 @@ describe('StateGateway', () => {
         disconnect: jest.fn(),
       };
 
-      await gateway.handleConnection(
-        mockClient as unknown as AuthenticatedSocket,
-      );
+      gateway.handleConnection(mockClient as unknown as AuthenticatedSocket);
 
       expect(mockJwtVerificationService.extractToken).toHaveBeenCalledWith(
         mockClient.handshake,
@@ -195,13 +190,13 @@ describe('StateGateway', () => {
       );
 
       // Should NOT call these anymore in handleConnection
-      expect(mockAuthService.syncUserFromToken).not.toHaveBeenCalled();
+      expect(mockUsersService.findOne).not.toHaveBeenCalled();
       expect(mockUserSocketService.setSocket).not.toHaveBeenCalled();
 
       // Should set data on client
       expect(mockClient.data.user).toEqual(
         expect.objectContaining({
-          keycloakSub: 'test-sub',
+          userId: 'test-sub',
         }),
       );
       expect(mockClient.data.activeDollId).toBeNull();
@@ -211,7 +206,7 @@ describe('StateGateway', () => {
       );
     });
 
-    it('should disconnect client when no token provided', async () => {
+    it('should disconnect client when no token provided', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {},
@@ -226,9 +221,7 @@ describe('StateGateway', () => {
         undefined,
       );
 
-      await gateway.handleConnection(
-        mockClient as unknown as AuthenticatedSocket,
-      );
+      gateway.handleConnection(mockClient as unknown as AuthenticatedSocket);
 
       expect(mockLoggerWarn).toHaveBeenCalledWith(
         'WebSocket connection attempt without token',
@@ -242,7 +235,7 @@ describe('StateGateway', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
-          user: { keycloakSub: 'test-sub' },
+          user: { userId: 'test-sub', email: 'test@example.com' },
           friends: new Set(),
         },
         emit: jest.fn(),
@@ -262,10 +255,8 @@ describe('StateGateway', () => {
         mockClient as unknown as AuthenticatedSocket,
       );
 
-      // 1. Sync User
-      expect(mockAuthService.syncUserFromToken).toHaveBeenCalledWith(
-        mockClient.data.user,
-      );
+      // 1. Load User
+      expect(mockUsersService.findOne).toHaveBeenCalledWith('test-sub');
 
       // 2. Set Socket
       expect(mockUserSocketService.setSocket).toHaveBeenCalledWith(
@@ -320,7 +311,7 @@ describe('StateGateway', () => {
     it('should log client disconnection', async () => {
       const mockClient: MockSocket = {
         id: 'client1',
-        data: { user: { keycloakSub: 'test-sub' } },
+        data: { user: { userId: 'test-sub', email: 'test@example.com' } },
       };
 
       await gateway.handleDisconnect(
@@ -351,7 +342,7 @@ describe('StateGateway', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
-          user: { keycloakSub: 'test-sub' },
+          user: { userId: 'test-sub', email: 'test@example.com' },
           userId: 'user-id',
           friends: new Set(['friend-1']),
         },
@@ -385,7 +376,7 @@ describe('StateGateway', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
-          user: { keycloakSub: 'test-sub' },
+          user: { userId: 'test-sub', email: 'test@example.com' },
           userId: 'user-1',
           activeDollId: 'doll-1', // User must have active doll
           friends: new Set(['friend-1']),
@@ -422,7 +413,7 @@ describe('StateGateway', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
-          user: { keycloakSub: 'test-sub' },
+          user: { userId: 'test-sub', email: 'test@example.com' },
           userId: 'user-1',
           activeDollId: null, // No doll
           friends: new Set(['friend-1']),
@@ -443,7 +434,7 @@ describe('StateGateway', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
-          user: { keycloakSub: 'test-sub' },
+          user: { userId: 'test-sub', email: 'test@example.com' },
           // userId is missing
           friends: new Set(['friend-1']),
         },
@@ -482,7 +473,7 @@ describe('StateGateway', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
-          user: { keycloakSub: 'test-sub' },
+          user: { userId: 'test-sub', email: 'test@example.com' },
           userId: 'user-1',
           activeDollId: 'doll-1', // User must have active doll
           friends: new Set(['friend-1']),
@@ -523,7 +514,7 @@ describe('StateGateway', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
-          user: { keycloakSub: 'test-sub' },
+          user: { userId: 'test-sub', email: 'test@example.com' },
           userId: 'user-1',
           activeDollId: null, // No doll
           friends: new Set(['friend-1']),
@@ -551,7 +542,7 @@ describe('StateGateway', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
-          user: { keycloakSub: 'test-sub' },
+          user: { userId: 'test-sub', email: 'test@example.com' },
           // userId is missing
           friends: new Set(['friend-1']),
         },
@@ -601,7 +592,7 @@ describe('StateGateway', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
-          user: { keycloakSub: 'test-sub' },
+          user: { userId: 'test-sub', email: 'test@example.com' },
           userId: 'user-1',
           activeDollId: 'doll-1',
           friends: new Set(['friend-1']),
@@ -652,7 +643,7 @@ describe('StateGateway', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
-          user: { keycloakSub: 'test-sub', name: 'TestUser' },
+          user: { userId: 'test-sub', email: 'test@example.com' },
           userId: 'user-1',
           friends: new Set(['friend-1']),
         },
@@ -677,7 +668,6 @@ describe('StateGateway', () => {
         'interaction-received',
         expect.objectContaining({
           senderUserId: 'user-1',
-          senderName: 'TestUser',
           content: 'hello',
           type: 'text',
         }),
@@ -688,7 +678,7 @@ describe('StateGateway', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
-          user: { keycloakSub: 'test-sub' },
+          user: { userId: 'test-sub', email: 'test@example.com' },
           userId: 'user-1',
           friends: new Set(['friend-1']),
         },
@@ -719,7 +709,7 @@ describe('StateGateway', () => {
       const mockClient: MockSocket = {
         id: 'client1',
         data: {
-          user: { keycloakSub: 'test-sub' },
+          user: { userId: 'test-sub', email: 'test@example.com' },
           userId: 'user-1',
           friends: new Set(['friend-1']),
         },

@@ -3,7 +3,6 @@ import { ThrottlerModule } from '@nestjs/throttler';
 import { FriendsController } from './friends.controller';
 import { FriendsService } from './friends.service';
 import { UsersService } from '../users/users.service';
-import { AuthService } from '../auth/auth.service';
 // StateGateway removed
 
 enum FriendRequestStatus {
@@ -16,37 +15,38 @@ describe('FriendsController', () => {
   let controller: FriendsController;
 
   const mockAuthUser = {
-    keycloakSub: 'f:realm:user1',
+    userId: 'user-1',
     email: 'user1@example.com',
-    name: 'User One',
-    username: 'user1',
+    roles: [],
   };
 
   const mockUser1 = {
     id: 'user-1',
-    keycloakSub: 'f:realm:user1',
+    keycloakSub: 'legacy-sub-1',
     email: 'user1@example.com',
     name: 'User One',
     username: 'user1',
     picture: null,
     roles: [],
+    passwordHash: null,
     lastLoginAt: new Date(),
     createdAt: new Date(),
     updatedAt: new Date(),
-  };
+  } as unknown as { passwordHash: string | null } & Record<string, unknown>;
 
   const mockUser2 = {
     id: 'user-2',
-    keycloakSub: 'f:realm:user2',
+    keycloakSub: 'legacy-sub-2',
     email: 'user2@example.com',
     name: 'User Two',
     username: 'user2',
     picture: null,
     roles: [],
+    passwordHash: null,
     lastLoginAt: new Date(),
     createdAt: new Date(),
     updatedAt: new Date(),
-  };
+  } as unknown as { passwordHash: string | null } & Record<string, unknown>;
 
   const mockFriendRequest = {
     id: 'request-1',
@@ -81,11 +81,6 @@ describe('FriendsController', () => {
     searchUsers: jest.fn(),
   };
 
-  const mockAuthService = {
-    syncUserFromToken: jest.fn(),
-    ensureUserExists: jest.fn(),
-  };
-
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       imports: [
@@ -100,15 +95,12 @@ describe('FriendsController', () => {
       providers: [
         { provide: FriendsService, useValue: mockFriendsService },
         { provide: UsersService, useValue: mockUsersService },
-        { provide: AuthService, useValue: mockAuthService },
       ],
     }).compile();
 
     controller = module.get<FriendsController>(FriendsController);
 
     jest.clearAllMocks();
-    mockAuthService.syncUserFromToken.mockResolvedValue(mockUser1);
-    mockAuthService.ensureUserExists.mockResolvedValue(mockUser1);
   });
 
   it('should be defined', () => {
