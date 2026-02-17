@@ -15,17 +15,16 @@ function IsAtLeastOneNameProvided(validationOptions?: ValidationOptions) {
       name: 'isAtLeastOneNameProvided',
       validator: {
         validate(value, args) {
-          const object = args?.object as AppMetadataDto;
-          const hasLocalized =
-            typeof object.localized === 'string' &&
-            object.localized.trim().length > 0;
-          const hasUnlocalized =
-            typeof object.unlocalized === 'string' &&
-            object.unlocalized.trim().length > 0;
-          return hasLocalized || hasUnlocalized;
+          const object = args?.object as PresenceStatusDto;
+          const hasTitle =
+            typeof object.title === 'string' && object.title.trim().length > 0;
+          const hasSubtitle =
+            typeof object.subtitle === 'string' &&
+            object.subtitle.trim().length > 0;
+          return hasTitle || hasSubtitle;
         },
         defaultMessage() {
-          return 'At least one of localized or unlocalized must be a non-empty string';
+          return 'At least one of title or subtitle must be a non-empty string';
         },
       },
     },
@@ -33,19 +32,19 @@ function IsAtLeastOneNameProvided(validationOptions?: ValidationOptions) {
   );
 }
 
-export class AppMetadataDto {
+export class PresenceStatusDto {
   @IsOptional()
   @IsString()
   @MaxLength(200)
   @IsAtLeastOneNameProvided()
-  localized: string | null;
+  title: string | null;
 
   @IsOptional()
   @IsString()
   @MaxLength(200)
-  unlocalized: string | null;
+  subtitle: string | null;
 
   @IsOptional()
   @IsString()
-  appIconB64: string | null;
+  graphicsB64: string | null;
 }

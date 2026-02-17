@@ -486,10 +486,10 @@ describe('StateGateway', () => {
       ]);
 
       const data: UserStatusDto = {
-        appMetadata: {
-          localized: null,
-          unlocalized: 'VS Code',
-          appIconB64: null,
+        presenceStatus: {
+          title: null,
+          subtitle: 'VS Code',
+          graphicsB64: null,
         },
         state: UserState.IDLE,
       };
@@ -522,10 +522,10 @@ describe('StateGateway', () => {
       };
 
       const data: UserStatusDto = {
-        appMetadata: {
-          localized: null,
-          unlocalized: 'VS Code',
-          appIconB64: null,
+        presenceStatus: {
+          title: null,
+          subtitle: 'VS Code',
+          graphicsB64: null,
         },
         state: UserState.IDLE,
       };
@@ -549,10 +549,10 @@ describe('StateGateway', () => {
       };
 
       const data: UserStatusDto = {
-        appMetadata: {
-          localized: null,
-          unlocalized: 'VS Code',
-          appIconB64: null,
+        presenceStatus: {
+          title: null,
+          subtitle: 'VS Code',
+          graphicsB64: null,
         },
         state: UserState.IDLE,
       };
@@ -572,10 +572,10 @@ describe('StateGateway', () => {
         data: {},
       };
       const data: UserStatusDto = {
-        appMetadata: {
-          localized: null,
-          unlocalized: 'VS Code',
-          appIconB64: null,
+        presenceStatus: {
+          title: null,
+          subtitle: 'VS Code',
+          graphicsB64: null,
         },
         state: UserState.IDLE,
       };
@@ -605,10 +605,10 @@ describe('StateGateway', () => {
       ]);
 
       const data: UserStatusDto = {
-        appMetadata: {
-          localized: null,
-          unlocalized: 'VS Code',
-          appIconB64: null,
+        presenceStatus: {
+          title: null,
+          subtitle: 'VS Code',
+          graphicsB64: null,
         },
         state: UserState.IDLE,
       };
