@@ -1,8 +1,19 @@
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM (
+      SELECT LOWER(TRIM("email")) AS normalized_email
+      FROM "users"
+      GROUP BY LOWER(TRIM("email"))
+      HAVING COUNT(*) > 1
+    ) duplicates
+  ) THEN
+    RAISE EXCEPTION
+      'Cannot normalize user emails: duplicate values would conflict after lowercasing/trimming';
+  END IF;
+END $$;
+
 UPDATE "users"
 SET "email" = LOWER(TRIM("email"))
 WHERE "email" <> LOWER(TRIM("email"));
-
-ALTER TABLE "users"
-  DROP CONSTRAINT IF EXISTS "users_email_key";
-
-CREATE UNIQUE INDEX "users_email_key" ON "users"(LOWER("email"));

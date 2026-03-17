@@ -50,6 +50,7 @@ describe('AuthService', () => {
     },
     user: {
       update: jest.fn(),
+      findFirst: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
     },
@@ -422,6 +423,90 @@ describe('AuthService', () => {
       });
       expect(txIdentityCreate).toHaveBeenCalledWith({
         data: expect.objectContaining({ providerEmail: 'jane@example.com' }),
+      });
+    });
+
+    it('derives username from email local-part when provider username is missing', async () => {
+      const state = service.startSso(
+        'google',
+        'http://127.0.0.1:43123/callback',
+      ).state;
+      const profileWithoutUsername: SocialAuthProfile = {
+        ...socialProfile,
+        email: 'Alice@example.com',
+        username: undefined,
+      };
+
+      const txUserCreate = jest.fn().mockResolvedValue({ id: 'user-1' });
+      const txIdentityCreate = jest.fn().mockResolvedValue(undefined);
+      mockPrismaService.authIdentity.findUnique.mockResolvedValue(null);
+      mockPrismaService.user.findFirst = jest.fn().mockResolvedValue(null);
+      mockPrismaService.$transaction.mockImplementation((callback) =>
+        Promise.resolve(
+          callback({
+            user: {
+              findUnique: jest.fn().mockResolvedValue(null),
+              create: txUserCreate,
+            },
+            authIdentity: {
+              create: txIdentityCreate,
+            },
+          }),
+        ),
+      );
+      mockPrismaService.authExchangeCode.create.mockResolvedValue({
+        id: 'code-1',
+      });
+
+      await service.completeSso('google', state, profileWithoutUsername);
+
+      expect(txUserCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({ username: 'alice' }),
+      });
+      expect(txIdentityCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({ providerUsername: 'alice' }),
+      });
+    });
+
+    it('adds a numeric suffix when derived username is already taken', async () => {
+      const state = service.startSso(
+        'google',
+        'http://127.0.0.1:43123/callback',
+      ).state;
+      const profileWithoutUsername: SocialAuthProfile = {
+        ...socialProfile,
+        email: 'Alice@example.com',
+        username: undefined,
+      };
+
+      const txUserCreate = jest.fn().mockResolvedValue({ id: 'user-1' });
+      const txIdentityCreate = jest.fn().mockResolvedValue(undefined);
+      mockPrismaService.authIdentity.findUnique.mockResolvedValue(null);
+      mockPrismaService.user.findFirst = jest
+        .fn()
+        .mockResolvedValueOnce({ id: 'existing-user' })
+        .mockResolvedValueOnce(null);
+      mockPrismaService.$transaction.mockImplementation((callback) =>
+        Promise.resolve(
+          callback({
+            user: {
+              findUnique: jest.fn().mockResolvedValue(null),
+              create: txUserCreate,
+            },
+            authIdentity: {
+              create: txIdentityCreate,
+            },
+          }),
+        ),
+      );
+      mockPrismaService.authExchangeCode.create.mockResolvedValue({
+        id: 'code-1',
+      });
+
+      await service.completeSso('google', state, profileWithoutUsername);
+
+      expect(txUserCreate).toHaveBeenCalledWith({
+        data: expect.objectContaining({ username: 'alice2' }),
       });
     });
   });

@@ -29,8 +29,10 @@ import {
   asProviderName,
   isLoopbackRedirect,
   normalizeEmail,
+  normalizeUsername,
   randomOpaqueToken,
   sha256,
+  usernameFromEmail,
 } from './auth.utils';
 import type { SsoProvider } from './dto/sso-provider';
 
@@ -220,6 +222,11 @@ export class AuthService {
       const normalizedProviderEmail = profile.email
         ? normalizeEmail(profile.email)
         : null;
+      const resolvedUsername = await this.resolveUsername(
+        profile.username,
+        normalizedProviderEmail,
+        existingIdentity.user.id,
+      );
 
       await this.prisma.authIdentity.update({
         where: { id: existingIdentity.id },
@@ -228,7 +235,7 @@ export class AuthService {
             ? { providerEmail: normalizedProviderEmail }
             : {}),
           providerName: profile.displayName,
-          providerUsername: profile.username,
+          providerUsername: resolvedUsername,
           providerPicture: profile.picture,
           emailVerified: profile.emailVerified,
         },
@@ -241,7 +248,7 @@ export class AuthService {
             ? { email: normalizedProviderEmail }
             : {}),
           name: profile.displayName,
-          username: profile.username,
+          username: resolvedUsername,
           picture: profile.picture,
           lastLoginAt: now,
         },
@@ -255,6 +262,10 @@ export class AuthService {
     }
 
     const email = normalizeEmail(profile.email);
+    const resolvedUsername = await this.resolveUsername(
+      profile.username,
+      email,
+    );
 
     if (!profile.emailVerified) {
       throw new BadRequestException(
@@ -277,7 +288,7 @@ export class AuthService {
         data: {
           email,
           name: profile.displayName,
-          username: profile.username,
+          username: resolvedUsername,
           picture: profile.picture,
           roles: [],
           lastLoginAt: now,
@@ -291,7 +302,7 @@ export class AuthService {
           providerSubject: profile.providerSubject,
           providerEmail: email,
           providerName: profile.displayName,
-          providerUsername: profile.username,
+          providerUsername: resolvedUsername,
           providerPicture: profile.picture,
           emailVerified: profile.emailVerified,
           userId: user.id,
@@ -300,6 +311,58 @@ export class AuthService {
 
       return user;
     });
+  }
+
+  private async resolveUsername(
+    providerUsername: string | undefined,
+    email: string | null,
+    excludeUserId?: string,
+  ): Promise<string> {
+    const candidates = [
+      providerUsername ? normalizeUsername(providerUsername) : '',
+      email ? usernameFromEmail(email) : '',
+      'friendoll',
+    ].filter(
+      (value, index, all) => value.length > 0 && all.indexOf(value) === index,
+    );
+
+    for (const base of candidates) {
+      const available = await this.isUsernameAvailable(base, excludeUserId);
+      if (available) {
+        return base;
+      }
+
+      for (let suffix = 2; suffix < 10_000; suffix += 1) {
+        const maxBaseLength = Math.max(1, 24 - suffix.toString().length);
+        const candidate = `${base.slice(0, maxBaseLength)}${suffix}`;
+        const available = await this.isUsernameAvailable(
+          candidate,
+          excludeUserId,
+        );
+        if (available) {
+          return candidate;
+        }
+      }
+    }
+
+    throw new ServiceUnavailableException('Unable to assign a unique username');
+  }
+
+  private async isUsernameAvailable(
+    username: string,
+    excludeUserId?: string,
+  ): Promise<boolean> {
+    const existing = await this.prisma.user.findFirst({
+      where: {
+        username,
+        ...(excludeUserId ? { id: { not: excludeUserId } } : {}),
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    return !existing;
   }
 
   private async issueTokens(

@@ -28,3 +28,19 @@ export function asProviderName(value: SsoProvider): 'GOOGLE' | 'DISCORD' {
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
+
+export function normalizeUsername(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 24);
+}
+
+export function usernameFromEmail(email: string): string {
+  const localPart = normalizeEmail(email).split('@')[0] ?? '';
+  return normalizeUsername(localPart);
+}

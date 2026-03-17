@@ -24,8 +24,8 @@ model User {
   /// User's email address
   email String @unique
 
-  /// User's preferred username from Keycloak
-  username String?
+  /// User's preferred app handle used for discovery
+  username String @unique
 
   /// URL to user's profile picture
   picture String?

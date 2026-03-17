@@ -1,0 +1,2 @@
+-- This migration was generated locally but superseded before it was applied.
+-- It remains as a no-op to preserve Prisma migration history.
