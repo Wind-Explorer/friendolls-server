@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
+import { sign } from 'jsonwebtoken';
 import { JwtVerificationService } from './jwt-verification.service';
 
 describe('JwtVerificationService', () => {
@@ -74,6 +75,50 @@ describe('JwtVerificationService', () => {
       const token = service.extractToken(handshake);
 
       expect(token).toBeUndefined();
+    });
+  });
+
+  describe('verifyToken', () => {
+    it('accepts access tokens', () => {
+      const token = sign(
+        {
+          sub: 'user-1',
+          email: 'user@example.com',
+          roles: ['user'],
+          typ: 'access',
+        },
+        'test-secret',
+        {
+          issuer: 'https://test.com',
+          audience: 'test-audience',
+          expiresIn: 60,
+          algorithm: 'HS256',
+        },
+      );
+
+      const payload = service.verifyToken(token);
+
+      expect(payload.sub).toBe('user-1');
+      expect(payload.typ).toBe('access');
+    });
+
+    it('rejects refresh tokens', () => {
+      const token = sign(
+        {
+          sub: 'user-1',
+          sid: 'session-1',
+          typ: 'refresh',
+        },
+        'test-secret',
+        {
+          issuer: 'https://test.com',
+          audience: 'test-audience',
+          expiresIn: 60,
+          algorithm: 'HS256',
+        },
+      );
+
+      expect(() => service.verifyToken(token)).toThrow('Invalid token type');
     });
   });
 });

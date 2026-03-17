@@ -9,7 +9,7 @@ datasource db {
   provider = "postgresql"
 }
 
-/// User model representing authenticated users from local auth
+/// User model representing authenticated users from Friendolls auth
 model User {
   /// Internal unique identifier (UUID)
   id String @id @default(uuid())
@@ -54,8 +54,62 @@ model User {
   userFriendships        Friendship[]    @relation("UserFriendships")
   friendFriendships      Friendship[]    @relation("FriendFriendships")
   dolls                  Doll[]
+  authIdentities         AuthIdentity[]
+  authSessions           AuthSession[]
+  authExchangeCodes      AuthExchangeCode[]
 
   @@map("users")
+}
+
+model AuthIdentity {
+  id              String       @id @default(uuid())
+  provider        AuthProvider
+  providerSubject String       @map("provider_subject")
+  providerEmail   String?      @map("provider_email")
+  providerName    String?      @map("provider_name")
+  providerUsername String?     @map("provider_username")
+  providerPicture String?      @map("provider_picture")
+  emailVerified   Boolean      @default(false) @map("email_verified")
+  createdAt       DateTime     @default(now()) @map("created_at")
+  updatedAt       DateTime     @updatedAt @map("updated_at")
+  userId          String       @map("user_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerSubject])
+  @@index([userId])
+  @@map("auth_identities")
+}
+
+model AuthSession {
+  id               String       @id @default(uuid())
+  provider         AuthProvider?
+  refreshTokenHash String       @unique @map("refresh_token_hash")
+  expiresAt        DateTime     @map("expires_at")
+  revokedAt        DateTime?    @map("revoked_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  userId           String       @map("user_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_sessions")
+}
+
+model AuthExchangeCode {
+  id        String       @id @default(uuid())
+  provider  AuthProvider
+  codeHash  String       @unique @map("code_hash")
+  expiresAt DateTime     @map("expires_at")
+  consumedAt DateTime?   @map("consumed_at")
+  createdAt DateTime     @default(now()) @map("created_at")
+  userId    String       @map("user_id")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("auth_exchange_codes")
 }
 
 model FriendRequest {
@@ -107,4 +161,9 @@ enum FriendRequestStatus {
   PENDING
   ACCEPTED
   DENIED
+}
+
+enum AuthProvider {
+  GOOGLE
+  DISCORD
 }

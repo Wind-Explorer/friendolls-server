@@ -36,6 +36,7 @@ export class ConnectionHandler {
       client.data.user = {
         userId: payload.sub,
         email: payload.email,
+        tokenType: 'access',
         roles: payload.roles,
       };
 
@@ -81,6 +82,7 @@ export class ConnectionHandler {
         userTokenData = {
           userId: payload.sub,
           email: payload.email,
+          tokenType: 'access',
           roles: payload.roles,
         };
         client.data.user = userTokenData;
@@ -96,6 +98,10 @@ export class ConnectionHandler {
         this.logger.log(
           `WebSocket authenticated via initialize fallback (Pending Init): ${payload.sub}`,
         );
+      }
+
+      if (!userTokenData) {
+        throw new WsException('Unauthorized: No user data found');
       }
 
       const user = await this.usersService.findOne(userTokenData.userId);

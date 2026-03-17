@@ -38,8 +38,8 @@ async function bootstrap() {
     .setTitle('Friendolls API')
     .setDescription(
       'API for managing users in Friendolls application.\n\n' +
-        'Authentication is handled via Keycloak OpenID Connect.\n' +
-        'Users must authenticate via Keycloak to obtain a JWT token.\n\n' +
+        'Authentication is handled via Passport.js social sign-in for desktop clients.\n' +
+        'Desktop clients exchange one-time SSO codes for Friendolls JWT tokens.\n\n' +
         'Include the JWT token in the Authorization header as: `Bearer <token>`',
     )
     .setVersion('1.0')
@@ -49,7 +49,7 @@ async function bootstrap() {
         scheme: 'bearer',
         bearerFormat: 'JWT',
         name: 'Authorization',
-        description: 'Enter JWT token obtained from Keycloak',
+        description: 'Enter Friendolls JWT access token',
         in: 'header',
       },
       'bearer',

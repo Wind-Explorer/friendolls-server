@@ -10,6 +10,7 @@ export interface JwtPayload {
   sub: string; // User ID
   email: string;
   roles?: string[];
+  typ: 'access';
   iss: string;
   aud?: string;
   exp: number;
@@ -59,6 +60,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     userId: string;
     email: string;
     roles?: string[];
+    tokenType: 'access';
   }> {
     this.logger.debug(`Validating JWT token payload`);
     this.logger.debug(`  Issuer: ${payload.iss}`);
@@ -75,9 +77,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Invalid token: missing subject');
     }
 
+    if (payload.typ !== 'access') {
+      this.logger.warn('JWT token has invalid type');
+      throw new UnauthorizedException('Invalid token type');
+    }
+
     const user = {
       userId: payload.sub,
       email: payload.email,
+      tokenType: payload.typ,
       roles:
         payload.roles && payload.roles.length > 0 ? payload.roles : undefined,
     };

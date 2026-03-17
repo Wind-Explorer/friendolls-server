@@ -33,7 +33,30 @@ function validateEnvironment(config: Record<string, any>): Record<string, any> {
     throw new Error('PORT must be a valid number');
   }
 
+  validateOptionalProvider(config, 'GOOGLE');
+  validateOptionalProvider(config, 'DISCORD');
+
   return config;
+}
+
+function validateOptionalProvider(
+  config: Record<string, any>,
+  provider: 'GOOGLE' | 'DISCORD',
+): void {
+  const vars = [
+    `${provider}_CLIENT_ID`,
+    `${provider}_CLIENT_SECRET`,
+    `${provider}_CALLBACK_URL`,
+  ];
+
+  const presentVars = vars.filter((varName) => Boolean(config[varName]));
+
+  if (presentVars.length > 0 && presentVars.length !== vars.length) {
+    const missingVars = vars.filter((varName) => !config[varName]);
+    throw new Error(
+      `Incomplete ${provider} OAuth configuration: missing ${missingVars.join(', ')}`,
+    );
+  }
 }
 
 /**

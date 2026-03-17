@@ -26,11 +26,17 @@ export class JwtVerificationService {
   }
 
   verifyToken(token: string): JwtPayload {
-    return verify(token, this.jwtSecret, {
+    const payload = verify(token, this.jwtSecret, {
       issuer: this.issuer,
       audience: this.audience,
       algorithms: [JWT_ALGORITHM],
     }) as JwtPayload;
+
+    if (payload.typ !== 'access') {
+      throw new Error('Invalid token type');
+    }
+
+    return payload;
   }
 
   extractToken(handshake: {

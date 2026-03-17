@@ -86,6 +86,25 @@ describe('UsersService', () => {
         }),
       });
     });
+
+    it('normalizes email before creating a local user', async () => {
+      const dto = {
+        email: ' John@Example.COM ',
+        name: 'John Doe',
+        username: 'johndoe',
+        passwordHash: 'hashed',
+      };
+
+      mockPrismaService.user.create.mockResolvedValue(mockUser);
+
+      await service.createLocalUser(dto);
+
+      expect(mockPrismaService.user.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          email: 'john@example.com',
+        }),
+      });
+    });
   });
 
   describe('findOne', () => {

@@ -9,6 +9,7 @@ import { PrismaService } from '../database/prisma.service';
 import { User, Prisma } from '@prisma/client';
 import type { UpdateUserDto } from './dto/update-user.dto';
 import { UserEvents } from './events/user.events';
+import { normalizeEmail } from '../auth/auth.utils';
 
 export interface CreateLocalUserDto {
   email: string;
@@ -241,7 +242,9 @@ export class UsersService {
   }
 
   async findByEmail(email: string): Promise<User | null> {
-    return this.prisma.user.findFirst({ where: { email } });
+    return this.prisma.user.findFirst({
+      where: { email: normalizeEmail(email) },
+    });
   }
 
   async createLocalUser(createDto: CreateLocalUserDto): Promise<User> {
@@ -250,7 +253,7 @@ export class UsersService {
 
     return this.prisma.user.create({
       data: {
-        email: createDto.email,
+        email: normalizeEmail(createDto.email),
         name: createDto.name,
         username: createDto.username,
         passwordHash: createDto.passwordHash,
