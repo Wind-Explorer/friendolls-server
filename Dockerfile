@@ -3,7 +3,7 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 RUN npm i -g pnpm && pnpm install --frozen-lockfile
 COPY . .
-RUN pnpm prisma:generate
+RUN DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy" pnpm prisma:generate
 RUN pnpm build
 
 FROM node:20-alpine
