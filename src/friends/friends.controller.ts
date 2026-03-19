@@ -7,8 +7,8 @@ import {
   Body,
   Query,
   HttpCode,
-  UseGuards,
   Logger,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -19,7 +19,6 @@ import {
   ApiUnauthorizedResponse,
   ApiQuery,
 } from '@nestjs/swagger';
-import { ThrottlerGuard, Throttle } from '@nestjs/throttler';
 import { User, FriendRequest, Prisma } from '@prisma/client';
 import { FriendsService } from './friends.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -62,8 +61,6 @@ export class FriendsController {
   ) {}
 
   @Get('search')
-  @UseGuards(ThrottlerGuard)
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
   @ApiOperation({
     summary: 'Search users by username',
     description: 'Search for users by username to send friend requests',

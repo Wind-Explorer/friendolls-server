@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ThrottlerModule } from '@nestjs/throttler';
 import { FriendsController } from './friends.controller';
 import { FriendsService } from './friends.service';
 import { UsersService } from '../users/users.service';
@@ -18,6 +17,7 @@ describe('FriendsController', () => {
     userId: 'user-1',
     email: 'user1@example.com',
     roles: [],
+    tokenType: 'access' as const,
   };
 
   const mockUser1 = {
@@ -83,14 +83,6 @@ describe('FriendsController', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
-      imports: [
-        ThrottlerModule.forRoot([
-          {
-            ttl: 60000,
-            limit: 10,
-          },
-        ]),
-      ],
       controllers: [FriendsController],
       providers: [
         { provide: FriendsService, useValue: mockFriendsService },
