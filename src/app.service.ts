@@ -1,8 +1,19 @@
 import { Injectable } from '@nestjs/common';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { PrismaService } from './database/prisma.service';
 
-const appVersion =
-  process.env.APP_VERSION ?? process.env.npm_package_version ?? 'unknown';
+const appVersion = (() => {
+  if (process.env.APP_VERSION) return process.env.APP_VERSION;
+  try {
+    const pkg = JSON.parse(
+      readFileSync(join(__dirname, '../../package.json'), 'utf-8'),
+    ) as { version: string };
+    return pkg.version;
+  } catch {
+    return 'unknown';
+  }
+})();
 
 export type DatabaseHealth = 'OK' | 'DOWN';
 
