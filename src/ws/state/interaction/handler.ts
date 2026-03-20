@@ -39,7 +39,16 @@ export class InteractionHandler {
       return;
     }
 
-    // 2. Check if recipient is online
+    // 2. Validate text content length
+    if (data.type === 'text' && data.content && data.content.length > 50) {
+      client.emit(WS_EVENT.INTERACTION_DELIVERY_FAILED, {
+        recipientUserId: data.recipientUserId,
+        reason: 'Text content exceeds 50 characters',
+      });
+      return;
+    }
+
+    // 3. Check if recipient is online
     const isOnline = await this.userSocketService.isUserOnline(
       data.recipientUserId,
     );
