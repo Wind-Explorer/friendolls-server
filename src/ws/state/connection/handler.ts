@@ -6,13 +6,11 @@ import { PrismaService } from '../../../database/prisma.service';
 import { UserSocketService } from '../user-socket.service';
 import { WsNotificationService } from '../ws-notification.service';
 import { WS_EVENT } from '../ws-events';
-import { UsersService } from '../../../users/users.service';
 
 export class ConnectionHandler {
   constructor(
     private readonly jwtVerificationService: JwtVerificationService,
     private readonly prisma: PrismaService,
-    private readonly usersService: UsersService,
     private readonly userSocketService: UserSocketService,
     private readonly wsNotificationService: WsNotificationService,
     private readonly logger: Logger,
@@ -43,6 +41,7 @@ export class ConnectionHandler {
       // Initialize defaults
       client.data.activeDollId = null;
       client.data.friends = new Set();
+      client.data.senderName = undefined;
       // userId is not set yet, it will be set in handleClientInitialize
 
       this.logger.log(`WebSocket authenticated (Pending Init): ${payload.sub}`);
@@ -94,42 +93,42 @@ export class ConnectionHandler {
         this.logger.log(
           `WebSocket authenticated via initialize fallback (Pending Init): ${payload.sub}`,
         );
-
-        this.logger.log(
-          `WebSocket authenticated via initialize fallback (Pending Init): ${payload.sub}`,
-        );
       }
 
       if (!userTokenData) {
         throw new WsException('Unauthorized: No user data found');
       }
 
-      const user = await this.usersService.findOne(userTokenData.userId);
-
-      // 2. Register socket mapping (Redis Write)
-      await this.userSocketService.setSocket(user.id, client.id);
-      client.data.userId = user.id;
-
-      // 3. Fetch initial state (DB Read)
-      const [userWithDoll, friends] = await Promise.all([
+      // 2. Fetch initial state (DB Read)
+      const [userState, friends] = await Promise.all([
         this.prisma.user.findUnique({
-          where: { id: user.id },
-          select: { activeDollId: true },
+          where: { id: userTokenData.userId },
+          select: { id: true, name: true, username: true, activeDollId: true },
         }),
         this.prisma.friendship.findMany({
-          where: { userId: user.id },
+          where: { userId: userTokenData.userId },
           select: { friendId: true },
         }),
       ]);
 
-      client.data.activeDollId = userWithDoll?.activeDollId || null;
-      client.data.friends = new Set(friends.map((f) => f.friendId));
+      if (!userState) {
+        throw new WsException('Unauthorized: No user data found');
+      }
 
-      this.logger.log(`Client initialized: ${user.id} (${client.id})`);
+      // 3. Register socket mapping (Redis Write)
+      await this.userSocketService.setSocket(userState.id, client.id);
+      client.data.userId = userState.id;
+
+      client.data.activeDollId = userState.activeDollId || null;
+      client.data.friends = new Set(friends.map((f) => f.friendId));
+      client.data.senderName = userState.name || userState.username;
+      client.data.senderNameCachedAt = Date.now();
+
+      this.logger.log(`Client initialized: ${userState.id} (${client.id})`);
 
       // 4. Notify client
       client.emit(WS_EVENT.INITIALIZED, {
-        userId: user.id,
+        userId: userState.id,
         activeDollId: client.data.activeDollId,
       });
     } catch (error) {
@@ -157,7 +156,9 @@ export class ConnectionHandler {
           // Notify friends that this user has disconnected
           const friends = client.data.friends;
           if (friends) {
-            const friendIds = Array.from(friends);
+            const friendIds = Array.from(friends).filter(
+              (friendId): friendId is string => typeof friendId === 'string',
+            );
             const friendSockets =
               await this.userSocketService.getFriendsSockets(friendIds);
 
@@ -175,10 +176,6 @@ export class ConnectionHandler {
       }
       // If userId is undefined, client never initialized, so no cleanup needed
     }
-
-    this.logger.log(
-      `Client id: ${client.id} disconnected (user: ${user?.userId || 'unknown'})`,
-    );
 
     this.logger.log(
       `Client id: ${client.id} disconnected (user: ${user?.userId || 'unknown'})`,

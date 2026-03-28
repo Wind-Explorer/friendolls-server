@@ -3,7 +3,6 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { StateGateway } from './state.gateway';
 import { AuthenticatedSocket } from '../../types/socket';
 import { JwtVerificationService } from '../../auth/services/jwt-verification.service';
-import { UsersService } from '../../users/users.service';
 import { PrismaService } from '../../database/prisma.service';
 import { UserSocketService } from './user-socket.service';
 import { WsNotificationService } from './ws-notification.service';
@@ -39,7 +38,6 @@ describe('StateGateway', () => {
     sockets: { sockets: { size: number; get: jest.Mock } };
     to: jest.Mock;
   };
-  let mockUsersService: Partial<UsersService>;
   let mockJwtVerificationService: Partial<JwtVerificationService>;
   let mockPrismaService: Partial<PrismaService>;
   let mockUserSocketService: Partial<UserSocketService>;
@@ -67,12 +65,6 @@ describe('StateGateway', () => {
       }),
     };
 
-    mockUsersService = {
-      findOne: jest.fn().mockResolvedValue({
-        id: 'user-id',
-      }),
-    };
-
     mockJwtVerificationService = {
       extractToken: jest.fn((handshake) => handshake.auth?.token),
       verifyToken: jest.fn().mockReturnValue({
@@ -83,7 +75,12 @@ describe('StateGateway', () => {
 
     mockPrismaService = {
       user: {
-        findUnique: jest.fn().mockResolvedValue({ activeDollId: 'doll-123' }),
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'user-id',
+          name: 'Test User',
+          username: 'test-user',
+          activeDollId: 'doll-123',
+        }),
       } as any,
       friendship: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -119,7 +116,6 @@ describe('StateGateway', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         StateGateway,
-        { provide: UsersService, useValue: mockUsersService },
         {
           provide: JwtVerificationService,
           useValue: mockJwtVerificationService,
@@ -190,7 +186,6 @@ describe('StateGateway', () => {
       );
 
       // Should NOT call these anymore in handleConnection
-      expect(mockUsersService.findOne).not.toHaveBeenCalled();
       expect(mockUserSocketService.setSocket).not.toHaveBeenCalled();
 
       // Should set data on client
@@ -244,6 +239,9 @@ describe('StateGateway', () => {
 
       // Mock Prisma responses
       (mockPrismaService.user!.findUnique as jest.Mock).mockResolvedValue({
+        id: 'user-id',
+        name: 'Test User',
+        username: 'test-user',
         activeDollId: 'doll-123',
       });
       (mockPrismaService.friendship!.findMany as jest.Mock).mockResolvedValue([
@@ -255,32 +253,29 @@ describe('StateGateway', () => {
         mockClient as unknown as AuthenticatedSocket,
       );
 
-      // 1. Load User
-      expect(mockUsersService.findOne).toHaveBeenCalledWith('test-sub');
-
-      // 2. Set Socket
+      // 1. Set Socket
       expect(mockUserSocketService.setSocket).toHaveBeenCalledWith(
         'user-id',
         'client1',
       );
 
-      // 3. Fetch State (DB)
+      // 2. Fetch State (DB)
       expect(mockPrismaService.user!.findUnique).toHaveBeenCalledWith({
-        where: { id: 'user-id' },
-        select: { activeDollId: true },
+        where: { id: 'test-sub' },
+        select: { id: true, name: true, username: true, activeDollId: true },
       });
       expect(mockPrismaService.friendship!.findMany).toHaveBeenCalledWith({
-        where: { userId: 'user-id' },
+        where: { userId: 'test-sub' },
         select: { friendId: true },
       });
 
-      // 4. Update Client Data
+      // 3. Update Client Data
       expect(mockClient.data.userId).toBe('user-id');
       expect(mockClient.data.activeDollId).toBe('doll-123');
       expect(mockClient.data.friends).toContain('friend-1');
       expect(mockClient.data.friends).toContain('friend-2');
 
-      // 5. Emit Initialized
+      // 4. Emit Initialized
       expect(mockClient.emit).toHaveBeenCalledWith('initialized', {
         userId: 'user-id',
         activeDollId: 'doll-123',

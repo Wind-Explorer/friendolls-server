@@ -1,4 +1,4 @@
-import { Logger, Inject } from '@nestjs/common';
+import { Logger, Inject, OnModuleDestroy } from '@nestjs/common';
 import {
   OnGatewayConnection,
   OnGatewayDisconnect,
@@ -22,7 +22,6 @@ import { PrismaService } from '../../database/prisma.service';
 import { UserSocketService } from './user-socket.service';
 import { WsNotificationService } from './ws-notification.service';
 import { WS_EVENT, REDIS_CHANNEL } from './ws-events';
-import { UsersService } from '../../users/users.service';
 import { ConnectionHandler } from './connection/handler';
 import { CursorHandler } from './cursor/handler';
 import { StatusHandler } from './status/handler';
@@ -31,14 +30,13 @@ import { RedisHandler } from './utils/redis-handler';
 import { Broadcaster } from './utils/broadcasting';
 import { Throttler } from './utils/throttling';
 
-@WebSocketGateway({
-  cors: {
-    origin: true,
-    credentials: true,
-  },
-})
+@WebSocketGateway()
 export class StateGateway
-  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+  implements
+    OnGatewayInit,
+    OnGatewayConnection,
+    OnGatewayDisconnect,
+    OnModuleDestroy
 {
   private readonly logger = new Logger(StateGateway.name);
 
@@ -55,7 +53,6 @@ export class StateGateway
   constructor(
     private readonly jwtVerificationService: JwtVerificationService,
     private readonly prisma: PrismaService,
-    private readonly usersService: UsersService,
     private readonly userSocketService: UserSocketService,
     private readonly wsNotificationService: WsNotificationService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis | null,
@@ -70,7 +67,6 @@ export class StateGateway
     this.connectionHandler = new ConnectionHandler(
       this.jwtVerificationService,
       this.prisma,
-      this.usersService,
       this.userSocketService,
       this.wsNotificationService,
       this.logger,
@@ -133,6 +129,12 @@ export class StateGateway
     const userId = client.data.userId;
     if (userId) {
       this.throttler.remove(userId);
+    }
+  }
+
+  onModuleDestroy() {
+    if (this.redisSubscriber) {
+      this.redisSubscriber.removeAllListeners('message');
     }
   }
 
