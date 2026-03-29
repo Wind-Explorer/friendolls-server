@@ -9,6 +9,8 @@ import { WsNotificationService } from '../ws-notification.service';
 import { WS_EVENT } from '../ws-events';
 import { Validator } from '../utils/validation';
 
+const SENDER_NAME_CACHE_TTL_MS = 10 * 60 * 1000;
+
 export class InteractionHandler {
   private readonly logger = new Logger(InteractionHandler.name);
 
@@ -17,6 +19,32 @@ export class InteractionHandler {
     private readonly userSocketService: UserSocketService,
     private readonly wsNotificationService: WsNotificationService,
   ) {}
+
+  private async resolveSenderName(
+    client: AuthenticatedSocket,
+    userId: string,
+  ): Promise<string> {
+    const cachedName = client.data.senderName;
+    const cachedAt = client.data.senderNameCachedAt;
+    const cacheIsFresh =
+      cachedName &&
+      typeof cachedAt === 'number' &&
+      Date.now() - cachedAt < SENDER_NAME_CACHE_TTL_MS;
+
+    if (cacheIsFresh) {
+      return cachedName;
+    }
+
+    const sender = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, username: true },
+    });
+
+    const senderName = sender?.name || sender?.username || 'Unknown';
+    client.data.senderName = senderName;
+    client.data.senderNameCachedAt = Date.now();
+    return senderName;
+  }
 
   async handleSendInteraction(
     client: AuthenticatedSocket,
@@ -61,11 +89,7 @@ export class InteractionHandler {
     }
 
     // 3. Construct payload
-    const sender = await this.prisma.user.findUnique({
-      where: { id: currentUserId },
-      select: { name: true, username: true },
-    });
-    const senderName = sender?.name || sender?.username || 'Unknown';
+    const senderName = await this.resolveSenderName(client, currentUserId);
 
     const payload: InteractionPayloadDto = {
       senderUserId: currentUserId,
