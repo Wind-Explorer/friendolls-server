@@ -3,7 +3,6 @@
 
 generator client {
   provider = "prisma-client-js"
-  output   = "../node_modules/.prisma/client"
 }
 
 datasource db {
@@ -50,10 +49,10 @@ model User {
   activeDollId String? @map("active_doll_id")
   activeDoll   Doll?   @relation("ActiveDoll", fields: [activeDollId], references: [id])
 
-  sentFriendRequests     FriendRequest[] @relation("SentFriendRequests")
-  receivedFriendRequests FriendRequest[] @relation("ReceivedFriendRequests")
-  userFriendships        Friendship[]    @relation("UserFriendships")
-  friendFriendships      Friendship[]    @relation("FriendFriendships")
+  sentFriendRequests     FriendRequest[]    @relation("SentFriendRequests")
+  receivedFriendRequests FriendRequest[]    @relation("ReceivedFriendRequests")
+  userFriendships        Friendship[]       @relation("UserFriendships")
+  friendFriendships      Friendship[]       @relation("FriendFriendships")
   dolls                  Doll[]
   authIdentities         AuthIdentity[]
   authSessions           AuthSession[]
@@ -63,17 +62,17 @@ model User {
 }
 
 model AuthIdentity {
-  id              String       @id @default(uuid())
-  provider        AuthProvider
-  providerSubject String       @map("provider_subject")
-  providerEmail   String?      @map("provider_email")
-  providerName    String?      @map("provider_name")
-  providerUsername String?     @map("provider_username")
-  providerPicture String?      @map("provider_picture")
-  emailVerified   Boolean      @default(false) @map("email_verified")
-  createdAt       DateTime     @default(now()) @map("created_at")
-  updatedAt       DateTime     @updatedAt @map("updated_at")
-  userId          String       @map("user_id")
+  id               String       @id @default(uuid())
+  provider         AuthProvider
+  providerSubject  String       @map("provider_subject")
+  providerEmail    String?      @map("provider_email")
+  providerName     String?      @map("provider_name")
+  providerUsername String?      @map("provider_username")
+  providerPicture  String?      @map("provider_picture")
+  emailVerified    Boolean      @default(false) @map("email_verified")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+  userId           String       @map("user_id")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -83,14 +82,14 @@ model AuthIdentity {
 }
 
 model AuthSession {
-  id               String       @id @default(uuid())
+  id               String        @id @default(uuid())
   provider         AuthProvider?
-  refreshTokenHash String       @unique @map("refresh_token_hash")
-  expiresAt        DateTime     @map("expires_at")
-  revokedAt        DateTime?    @map("revoked_at")
-  createdAt        DateTime     @default(now()) @map("created_at")
-  updatedAt        DateTime     @updatedAt @map("updated_at")
-  userId           String       @map("user_id")
+  refreshTokenHash String        @unique @map("refresh_token_hash")
+  expiresAt        DateTime      @map("expires_at")
+  revokedAt        DateTime?     @map("revoked_at")
+  createdAt        DateTime      @default(now()) @map("created_at")
+  updatedAt        DateTime      @updatedAt @map("updated_at")
+  userId           String        @map("user_id")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -99,13 +98,13 @@ model AuthSession {
 }
 
 model AuthExchangeCode {
-  id        String       @id @default(uuid())
-  provider  AuthProvider
-  codeHash  String       @unique @map("code_hash")
-  expiresAt DateTime     @map("expires_at")
-  consumedAt DateTime?   @map("consumed_at")
-  createdAt DateTime     @default(now()) @map("created_at")
-  userId    String       @map("user_id")
+  id         String       @id @default(uuid())
+  provider   AuthProvider
+  codeHash   String       @unique @map("code_hash")
+  expiresAt  DateTime     @map("expires_at")
+  consumedAt DateTime?    @map("consumed_at")
+  createdAt  DateTime     @default(now()) @map("created_at")
+  userId     String       @map("user_id")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
