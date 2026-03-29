@@ -10,6 +10,7 @@ import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { GoogleAuthGuard } from './guards/google-auth.guard';
 import { DiscordAuthGuard } from './guards/discord-auth.guard';
+import { AuthCleanupService } from './services/auth-cleanup.service';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { DiscordAuthGuard } from './guards/discord-auth.guard';
     DiscordAuthGuard,
     AuthService,
     JwtVerificationService,
+    AuthCleanupService,
   ],
   exports: [AuthService, PassportModule, JwtVerificationService],
 })
