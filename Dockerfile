@@ -8,9 +8,11 @@ RUN pnpm build
 
 FROM node:20-alpine
 WORKDIR /app
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
+RUN npm i -g pnpm
+COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/pnpm-lock.yaml ./pnpm-lock.yaml
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
-COPY --from=builder /app/package.json ./package.json
+COPY --from=builder /app/dist ./dist
+RUN pnpm install --prod --frozen-lockfile
 CMD ["node", "dist/src/main.js"]

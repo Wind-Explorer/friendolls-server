@@ -1,0 +1,12 @@
+.git
+.github
+.node_modules
+dist
+coverage
+*.log
+.env*
+test
+*.spec.ts
+*.e2e-spec.ts
+README.md
+AGENTS.md
