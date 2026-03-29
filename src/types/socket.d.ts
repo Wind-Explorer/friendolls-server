@@ -11,5 +11,7 @@ export type AuthenticatedSocket = BaseSocket<
     userId?: string;
     activeDollId?: string | null;
     friends?: Set<string>; // Set of friend user IDs
+    senderName?: string;
+    senderNameCachedAt?: number;
   }
 >;
