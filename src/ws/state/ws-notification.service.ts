@@ -48,13 +48,27 @@ export class WsNotificationService {
     action: 'add' | 'delete',
   ) {
     if (this.redisClient) {
-      await this.redisClient.publish(
-        REDIS_CHANNEL.FRIEND_CACHE_UPDATE,
-        JSON.stringify({ userId, friendId, action }),
-      );
-    } else {
-      // Fallback: update locally
+      try {
+        await this.redisClient.publish(
+          REDIS_CHANNEL.FRIEND_CACHE_UPDATE,
+          JSON.stringify({ userId, friendId, action }),
+        );
+        return;
+      } catch (error) {
+        this.logger.warn(
+          'Redis publish failed for friend cache update; applying local cache update only',
+          error as Error,
+        );
+      }
+    }
+
+    try {
       await this.updateFriendsCacheLocal(userId, friendId, action);
+    } catch (error) {
+      this.logger.error(
+        'Failed to apply local friend cache update',
+        error as Error,
+      );
     }
   }
 
@@ -89,13 +103,27 @@ export class WsNotificationService {
 
   async publishActiveDollUpdate(userId: string, dollId: string | null) {
     if (this.redisClient) {
-      await this.redisClient.publish(
-        REDIS_CHANNEL.ACTIVE_DOLL_UPDATE,
-        JSON.stringify({ userId, dollId }),
-      );
-    } else {
-      // Fallback: update locally
+      try {
+        await this.redisClient.publish(
+          REDIS_CHANNEL.ACTIVE_DOLL_UPDATE,
+          JSON.stringify({ userId, dollId }),
+        );
+        return;
+      } catch (error) {
+        this.logger.warn(
+          'Redis publish failed for active doll update; applying local cache update only',
+          error as Error,
+        );
+      }
+    }
+
+    try {
       await this.updateActiveDollCache(userId, dollId);
+    } catch (error) {
+      this.logger.error(
+        'Failed to apply local active doll cache update',
+        error as Error,
+      );
     }
   }
 }
