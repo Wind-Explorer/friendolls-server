@@ -152,6 +152,7 @@ export class StateGateway
     await this.statusHandler.handleClientReportUserStatus(client, data);
   }
 
+  @SubscribeMessage(WS_EVENT.CLIENT_SEND_INTERACTION)
   async handleSendInteraction(
     client: AuthenticatedSocket,
     data: SendInteractionDto,
