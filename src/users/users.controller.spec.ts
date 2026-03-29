@@ -22,6 +22,7 @@ describe('UsersController', () => {
   const mockAuthUser: AuthenticatedUser = {
     userId: 'uuid-123',
     email: 'test@example.com',
+    tokenType: 'access',
     roles: ['user'],
   };
 
