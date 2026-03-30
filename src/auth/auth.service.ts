@@ -37,12 +37,42 @@ import {
 } from './auth.utils';
 import type { SsoProvider } from './dto/sso-provider';
 import { UserEvents } from '../users/events/user.events';
+import { CacheService } from '../common/cache/cache.service';
+import {
+  authSessionUserTag,
+  authSessionCacheKey,
+  CACHE_NAMESPACE,
+  CACHE_TTL_SECONDS,
+} from '../common/cache/cache-keys';
+import { CacheTagsService } from '../common/cache/cache-tags.service';
 
 interface SsoStateClaims {
   provider: SsoProvider;
   redirectUri: string;
   nonce: string;
   typ: 'sso_state';
+}
+
+interface AuthSessionWithUser {
+  id: string;
+  refresh_token_hash: string;
+  expires_at: Date;
+  revoked_at: Date | null;
+  provider: 'GOOGLE' | 'DISCORD' | null;
+  user_id: string;
+  email: string;
+  roles: string[];
+}
+
+interface CachedAuthSessionWithUser {
+  id: string;
+  refresh_token_hash: string;
+  expires_at: string;
+  revoked_at: string | null;
+  provider: 'GOOGLE' | 'DISCORD' | null;
+  user_id: string;
+  email: string;
+  roles: string[];
 }
 
 @Injectable()
@@ -59,6 +89,8 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly cacheService: CacheService,
+    private readonly cacheTagsService: CacheTagsService,
   ) {
     this.jwtSecret = this.configService.get<string>('JWT_SECRET') || '';
     this.jwtIssuer =
@@ -162,7 +194,7 @@ export class AuthService {
     }
 
     if (session.refresh_token_hash !== refreshTokenHash) {
-      await this.revokeSessionOnReplay(session.id);
+      await this.revokeSessionOnReplay(session.id, session.user_id);
       throw new UnauthorizedException('Invalid refresh token');
     }
 
@@ -174,7 +206,7 @@ export class AuthService {
     );
 
     if (!updated) {
-      await this.revokeSessionOnReplay(session.id);
+      await this.revokeSessionOnReplay(session.id, session.user_id);
       throw new UnauthorizedException('Invalid refresh token');
     }
 
@@ -560,28 +592,34 @@ export class AuthService {
     return rows[0] ?? null;
   }
 
-  private async getSessionWithUser(sessionId: string): Promise<{
-    id: string;
-    refresh_token_hash: string;
-    expires_at: Date;
-    revoked_at: Date | null;
-    provider: 'GOOGLE' | 'DISCORD' | null;
-    user_id: string;
-    email: string;
-    roles: string[];
-  } | null> {
-    const rows = await this.prisma.$queryRaw<
-      Array<{
-        id: string;
-        refresh_token_hash: string;
-        expires_at: Date;
-        revoked_at: Date | null;
-        provider: 'GOOGLE' | 'DISCORD' | null;
-        user_id: string;
-        email: string;
-        roles: string[];
-      }>
-    >`
+  private async getSessionWithUser(
+    sessionId: string,
+  ): Promise<AuthSessionWithUser | null> {
+    const sessionCacheKey = this.getAuthSessionCacheKey(sessionId);
+    const cachedSessionRaw = await this.cacheService.get(sessionCacheKey);
+
+    if (cachedSessionRaw) {
+      try {
+        const cachedSession = JSON.parse(
+          cachedSessionRaw,
+        ) as CachedAuthSessionWithUser;
+        return {
+          ...cachedSession,
+          expires_at: new Date(cachedSession.expires_at),
+          revoked_at: cachedSession.revoked_at
+            ? new Date(cachedSession.revoked_at)
+            : null,
+        };
+      } catch (error) {
+        this.cacheService.recordError(
+          'auth session parse',
+          sessionCacheKey,
+          error,
+        );
+      }
+    }
+
+    const rows = await this.prisma.$queryRaw<Array<AuthSessionWithUser>>`
       SELECT s.id, s.refresh_token_hash, s.expires_at, s.revoked_at, s.provider, s.user_id, u.email, u.roles
       FROM auth_sessions AS s
       INNER JOIN users AS u ON u.id = s.user_id
@@ -589,7 +627,29 @@ export class AuthService {
       LIMIT 1
     `;
 
-    return rows[0] ?? null;
+    const session = rows[0] ?? null;
+    if (!session) {
+      return null;
+    }
+
+    const cachePayload: CachedAuthSessionWithUser = {
+      ...session,
+      expires_at: session.expires_at.toISOString(),
+      revoked_at: session.revoked_at ? session.revoked_at.toISOString() : null,
+    };
+
+    await this.cacheService.set(
+      sessionCacheKey,
+      JSON.stringify(cachePayload),
+      CACHE_TTL_SECONDS.AUTH_SESSION,
+    );
+    await this.cacheTagsService.rememberKeyForTag(
+      CACHE_NAMESPACE.AUTH_SESSION,
+      authSessionUserTag(session.user_id),
+      authSessionCacheKey(session.id),
+    );
+
+    return session;
   }
 
   private async rotateRefreshSession(
@@ -597,6 +657,8 @@ export class AuthService {
     refreshTokenHash: string,
     nextRefreshToken: string,
   ): Promise<boolean> {
+    await this.cacheService.del(this.getAuthSessionCacheKey(sessionId));
+
     const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
       UPDATE auth_sessions
       SET refresh_token_hash = ${sha256(nextRefreshToken)},
@@ -610,6 +672,10 @@ export class AuthService {
       RETURNING id
     `;
 
+    if (rows.length === 1) {
+      await this.cacheService.del(this.getAuthSessionCacheKey(sessionId));
+    }
+
     return rows.length === 1;
   }
 
@@ -617,6 +683,8 @@ export class AuthService {
     sessionId: string,
     refreshTokenHash: string,
   ): Promise<boolean> {
+    await this.cacheService.del(this.getAuthSessionCacheKey(sessionId));
+
     const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
       UPDATE auth_sessions
       SET revoked_at = NOW(),
@@ -628,17 +696,41 @@ export class AuthService {
       RETURNING id
     `;
 
+    if (rows.length === 1) {
+      await this.cacheService.del(this.getAuthSessionCacheKey(sessionId));
+    }
+
     return rows.length === 1;
   }
 
-  private async revokeSessionOnReplay(sessionId: string): Promise<void> {
+  private async revokeSessionOnReplay(
+    sessionId: string,
+    userId: string,
+  ): Promise<void> {
+    await this.cacheService.del(this.getAuthSessionCacheKey(sessionId));
+    await this.revokeAllUserSessions(userId);
+  }
+
+  private async revokeAllUserSessions(userId: string): Promise<void> {
     await this.prisma.$queryRaw<Array<{ id: string }>>`
       UPDATE auth_sessions
       SET revoked_at = NOW(),
           updated_at = NOW()
-      WHERE id = ${sessionId}
+      WHERE user_id = ${userId}
         AND revoked_at IS NULL
       RETURNING id
     `;
+
+    await this.cacheTagsService.invalidateTag(
+      CACHE_NAMESPACE.AUTH_SESSION,
+      authSessionUserTag(userId),
+    );
+  }
+
+  private getAuthSessionCacheKey(sessionId: string): string {
+    return this.cacheService.getNamespacedKey(
+      CACHE_NAMESPACE.AUTH_SESSION,
+      authSessionCacheKey(sessionId),
+    );
   }
 }

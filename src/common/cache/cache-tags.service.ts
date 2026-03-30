@@ -1,11 +1,24 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { CacheService } from './cache.service';
+import { parsePositiveInteger } from '../config/env.utils';
 
 const CACHE_TAG_SET_TTL_SECONDS = 86_400;
+const DEFAULT_CACHE_TAG_MAX_ENTRIES = 5_000;
 
 @Injectable()
 export class CacheTagsService {
-  constructor(private readonly cacheService: CacheService) {}
+  private readonly cacheTagMaxEntries: number;
+
+  constructor(
+    private readonly cacheService: CacheService,
+    private readonly configService: ConfigService,
+  ) {
+    this.cacheTagMaxEntries = parsePositiveInteger(
+      this.configService.get<string>('CACHE_TAG_MAX_ENTRIES'),
+      DEFAULT_CACHE_TAG_MAX_ENTRIES,
+    );
+  }
 
   async rememberKeyForTag(
     namespace: string,
@@ -28,6 +41,11 @@ export class CacheTagsService {
         redisClient.sadd(tagSetKey, keyWithNamespace),
         redisClient.expire(tagSetKey, CACHE_TAG_SET_TTL_SECONDS),
       ]);
+
+      const size = await redisClient.scard(tagSetKey);
+      if (size > this.cacheTagMaxEntries) {
+        await this.trimTagSet(tagSetKey, size - this.cacheTagMaxEntries);
+      }
     } catch (error) {
       this.cacheService.recordError('tag remember', tagSetKey, error);
     }
@@ -62,5 +80,27 @@ export class CacheTagsService {
       'cache-tag',
       `${namespace}:${tag}`,
     );
+  }
+
+  private async trimTagSet(
+    tagSetKey: string,
+    countToDrop: number,
+  ): Promise<void> {
+    const redisClient = this.cacheService.getRedisClient();
+    if (!redisClient || countToDrop <= 0) {
+      return;
+    }
+
+    try {
+      const sample = await redisClient.srandmember(tagSetKey, countToDrop);
+      const members = Array.isArray(sample) ? sample : [sample].filter(Boolean);
+      if (members.length === 0) {
+        return;
+      }
+
+      await redisClient.srem(tagSetKey, ...members);
+    } catch (error) {
+      this.cacheService.recordError('tag trim', tagSetKey, error);
+    }
   }
 }

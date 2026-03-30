@@ -24,6 +24,7 @@ import {
   dollsListOwnerTag,
   dollsListViewerTag,
 } from '../common/cache/cache-keys';
+import { FriendsService } from '../friends/friends.service';
 
 @Injectable()
 export class DollsService {
@@ -34,15 +35,8 @@ export class DollsService {
     private readonly eventEmitter: EventEmitter2,
     private readonly cacheService: CacheService,
     private readonly cacheTagsService: CacheTagsService,
+    private readonly friendsService: FriendsService,
   ) {}
-
-  async getFriendIds(userId: string): Promise<string[]> {
-    const friendships = await this.prisma.friendship.findMany({
-      where: { userId },
-      select: { friendId: true },
-    });
-    return friendships.map((f) => f.friendId);
-  }
 
   async create(
     requestingUserId: string,
@@ -144,8 +138,11 @@ export class DollsService {
     }
 
     // If requesting someone else's dolls, check friendship
-    const friendIds = await this.getFriendIds(requestingUserId);
-    if (!friendIds.includes(ownerId)) {
+    const isFriend = await this.friendsService.areFriends(
+      requestingUserId,
+      ownerId,
+    );
+    if (!isFriend) {
       throw new ForbiddenException('You are not friends with this user');
     }
 
@@ -161,13 +158,9 @@ export class DollsService {
   }
 
   async findOne(id: string, requestingUserId: string): Promise<Doll> {
-    const friendIds = await this.getFriendIds(requestingUserId);
-    const accessibleUserIds = [requestingUserId, ...friendIds];
-
     const doll = await this.prisma.doll.findFirst({
       where: {
         id,
-        userId: { in: accessibleUserIds },
         deletedAt: null,
       },
     });
@@ -176,6 +169,18 @@ export class DollsService {
       throw new NotFoundException(
         `Doll with ID ${id} not found or access denied`,
       );
+    }
+
+    if (doll.userId !== requestingUserId) {
+      const isFriend = await this.friendsService.areFriends(
+        requestingUserId,
+        doll.userId,
+      );
+      if (!isFriend) {
+        throw new NotFoundException(
+          `Doll with ID ${id} not found or access denied`,
+        );
+      }
     }
 
     return doll;

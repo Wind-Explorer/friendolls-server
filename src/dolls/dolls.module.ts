@@ -6,9 +6,15 @@ import { DollsNotificationService } from './dolls-notification.service';
 import { DatabaseModule } from '../database/database.module';
 import { AuthModule } from '../auth/auth.module';
 import { WsModule } from '../ws/ws.module';
+import { FriendsModule } from '../friends/friends.module';
 
 @Module({
-  imports: [DatabaseModule, AuthModule, forwardRef(() => WsModule)],
+  imports: [
+    DatabaseModule,
+    AuthModule,
+    FriendsModule,
+    forwardRef(() => WsModule),
+  ],
   controllers: [DollsController],
   providers: [
     DollsService,

@@ -83,6 +83,13 @@ function validateEnvironment(
     throw new Error('REDIS_CONNECT_TIMEOUT_MS must be a positive number');
   }
 
+  validateOptionalPositiveNumber(config, 'THROTTLE_TTL');
+  validateOptionalPositiveNumber(config, 'THROTTLE_LIMIT');
+  validateOptionalPositiveNumber(config, 'CACHE_DEFAULT_TTL_SECONDS');
+  validateOptionalPositiveNumber(config, 'CACHE_MAX_TTL_SECONDS');
+  validateOptionalPositiveNumber(config, 'CACHE_METRICS_LOG_INTERVAL_MS');
+  validateOptionalPositiveNumber(config, 'CACHE_TAG_MAX_ENTRIES');
+
   validateOptionalProvider(config, 'GOOGLE');
   validateOptionalProvider(config, 'DISCORD');
 
@@ -106,6 +113,20 @@ function validateOptionalProvider(
     throw new Error(
       `Incomplete ${provider} OAuth configuration: missing ${missingVars.join(', ')}`,
     );
+  }
+}
+
+function validateOptionalPositiveNumber(
+  config: Record<string, unknown>,
+  key: string,
+): void {
+  const value = config[key];
+  if (value === undefined || value === null || value === '') {
+    return;
+  }
+
+  if (!Number.isFinite(Number(value)) || Number(value) <= 0) {
+    throw new Error(`${key} must be a positive number`);
   }
 }
 

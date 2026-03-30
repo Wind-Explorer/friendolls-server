@@ -4,6 +4,7 @@ import { CacheTagsService } from '../common/cache/cache-tags.service';
 import {
   CACHE_NAMESPACE,
   dollsListViewerTag,
+  friendshipCheckUserTag,
   friendsListDependsOnUserTag,
   friendsListOwnerTag,
 } from '../common/cache/cache-keys';
@@ -59,6 +60,14 @@ export class FriendsCacheInvalidationService {
       this.cacheTagsService.invalidateTag(
         CACHE_NAMESPACE.DOLLS_LIST,
         dollsListViewerTag(secondUserId),
+      ),
+      this.cacheTagsService.invalidateTag(
+        CACHE_NAMESPACE.FRIENDSHIP_CHECK,
+        friendshipCheckUserTag(firstUserId),
+      ),
+      this.cacheTagsService.invalidateTag(
+        CACHE_NAMESPACE.FRIENDSHIP_CHECK,
+        friendshipCheckUserTag(secondUserId),
       ),
     ]);
   }

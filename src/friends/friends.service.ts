@@ -20,6 +20,8 @@ import { CacheTagsService } from '../common/cache/cache-tags.service';
 import {
   CACHE_NAMESPACE,
   CACHE_TTL_SECONDS,
+  friendshipCheckCacheKey,
+  friendshipCheckUserTag,
   friendsListCacheKey,
   friendsListDependsOnUserTag,
   friendsListOwnerTag,
@@ -378,6 +380,21 @@ export class FriendsService {
   }
 
   async areFriends(userId: string, friendId: string): Promise<boolean> {
+    const cacheKey = friendshipCheckCacheKey(userId, friendId);
+    const namespacedKey = this.cacheService.getNamespacedKey(
+      CACHE_NAMESPACE.FRIENDSHIP_CHECK,
+      cacheKey,
+    );
+    const cached = await this.cacheService.get(namespacedKey);
+
+    if (cached === '1') {
+      return true;
+    }
+
+    if (cached === '0') {
+      return false;
+    }
+
     const friendship = await this.prisma.friendship.findFirst({
       where: {
         userId,
@@ -385,6 +402,27 @@ export class FriendsService {
       },
     });
 
-    return !!friendship;
+    const areFriends = !!friendship;
+
+    await this.cacheService.set(
+      namespacedKey,
+      areFriends ? '1' : '0',
+      CACHE_TTL_SECONDS.FRIENDSHIP_CHECK,
+    );
+
+    await Promise.all([
+      this.cacheTagsService.rememberKeyForTag(
+        CACHE_NAMESPACE.FRIENDSHIP_CHECK,
+        friendshipCheckUserTag(userId),
+        cacheKey,
+      ),
+      this.cacheTagsService.rememberKeyForTag(
+        CACHE_NAMESPACE.FRIENDSHIP_CHECK,
+        friendshipCheckUserTag(friendId),
+        cacheKey,
+      ),
+    ]);
+
+    return areFriends;
   }
 }

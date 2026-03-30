@@ -4,6 +4,8 @@ export const CACHE_NAMESPACE = {
   FRIENDS_LIST: 'friends-list',
   DOLLS_LIST: 'dolls-list',
   USERS_SEARCH: 'users-search',
+  FRIENDSHIP_CHECK: 'friendship-check',
+  AUTH_SESSION: 'auth-session',
 } as const;
 
 function normalizeKeyPart(value: string | undefined): string {
@@ -18,6 +20,8 @@ export const CACHE_TTL_SECONDS = {
   FRIENDS_LIST: 30,
   DOLLS_LIST: 30,
   USERS_SEARCH: 20,
+  FRIENDSHIP_CHECK: 120,
+  AUTH_SESSION: 30,
 } as const;
 
 export function friendsListCacheKey(userId: string): string {
@@ -55,6 +59,25 @@ export function usersSearchCacheKey(
 }
 
 export const USERS_SEARCH_GLOBAL_TAG = 'global';
+
+export function friendshipCheckCacheKey(
+  userId: string,
+  friendId: string,
+): string {
+  return `${normalizeKeyPart(userId)}:${normalizeKeyPart(friendId)}`;
+}
+
+export function friendshipCheckUserTag(userId: string): string {
+  return `user:${normalizeKeyPart(userId)}`;
+}
+
+export function authSessionCacheKey(sessionId: string): string {
+  return normalizeKeyPart(sessionId);
+}
+
+export function authSessionUserTag(userId: string): string {
+  return `user:${normalizeKeyPart(userId)}`;
+}
 
 export function usersSearchUserTag(userId: string): string {
   return `user:${normalizeKeyPart(userId)}`;

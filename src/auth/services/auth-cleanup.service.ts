@@ -20,6 +20,14 @@ const DEFAULT_REVOKED_RETENTION_DAYS = 7;
 const CLEANUP_LOCK_KEY = 'lock:auth:cleanup';
 const CLEANUP_LOCK_TTL_MS = 55_000;
 
+const RELEASE_LOCK_SCRIPT = `
+  if redis.call("get", KEYS[1]) == ARGV[1] then
+    return redis.call("del", KEYS[1])
+  else
+    return 0
+  end
+`;
+
 @Injectable()
 export class AuthCleanupService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AuthCleanupService.name);
@@ -141,10 +149,12 @@ export class AuthCleanupService implements OnModuleInit, OnModuleDestroy {
     } finally {
       if (lockAcquired && this.redisClient) {
         try {
-          const currentLockValue = await this.redisClient.get(CLEANUP_LOCK_KEY);
-          if (currentLockValue === lockToken) {
-            await this.redisClient.del(CLEANUP_LOCK_KEY);
-          }
+          await this.redisClient.eval(
+            RELEASE_LOCK_SCRIPT,
+            1,
+            CLEANUP_LOCK_KEY,
+            lockToken,
+          );
         } catch (error) {
           this.logger.warn(
             'Failed to release auth cleanup lock',
