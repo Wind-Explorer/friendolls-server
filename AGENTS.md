@@ -8,9 +8,9 @@ Backend server for Friendolls.
 
 ## Commands
 
-- **Error Checks**: `pnpm check`
-- **Format/Lint**: `pnpm format`, `pnpm lint`
-- **Test**: `pnpm test` (Unit), `pnpm test:e2e` (E2E)
+- **Lint/Check for errors**: `pnpm lint`
+- **Format**: `pnpm format`
+- **Test**: `pnpm test`
 - **Single Test**: `pnpm test -- -t "test name"` or `pnpm test -- src/path/to/file.spec.ts`
 - **Database**: `npx prisma generate`, `npx prisma migrate dev`
 
@@ -29,4 +29,4 @@ Backend server for Friendolls.
 
 ## Note
 
-Do not run the project yourself. Run error checks and lints to detect issues.
+Do not run the project yourself. Run lints and tests to detect issues after each final changes.
