@@ -13,5 +13,6 @@ export type AuthenticatedSocket = BaseSocket<
     friends?: Set<string>; // Set of friend user IDs
     senderName?: string;
     senderNameCachedAt?: number;
+    lastSeenAt?: number;
   }
 >;

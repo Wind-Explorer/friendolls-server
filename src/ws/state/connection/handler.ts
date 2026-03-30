@@ -116,7 +116,9 @@ export class ConnectionHandler {
 
       // 3. Register socket mapping (Redis Write)
       await this.userSocketService.setSocket(userState.id, client.id);
+      await this.userSocketService.touchLastSeen(userState.id);
       client.data.userId = userState.id;
+      client.data.lastSeenAt = Date.now();
 
       client.data.activeDollId = userState.activeDollId || null;
       client.data.friends = new Set(friends.map((f) => f.friendId));
@@ -149,7 +151,8 @@ export class ConnectionHandler {
         // Check if this socket is still the active one for the user
         const currentSocketId = await this.userSocketService.getSocket(userId);
         if (currentSocketId === client.id) {
-          await this.userSocketService.removeSocket(userId);
+          await this.userSocketService.removeSocket(userId, client.id);
+          await this.userSocketService.touchLastSeen(userId);
           // Note: throttling remove is done in gateway
 
           // Notify friends that this user has disconnected
@@ -179,5 +182,7 @@ export class ConnectionHandler {
     this.logger.log(
       `Client id: ${client.id} disconnected (user: ${user?.userId || 'unknown'})`,
     );
+
+    await this.userSocketService.removeSocketById(client.id);
   }
 }

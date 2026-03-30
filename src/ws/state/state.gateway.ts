@@ -29,6 +29,11 @@ import { InteractionHandler } from './interaction/handler';
 import { RedisHandler } from './utils/redis-handler';
 import { Broadcaster } from './utils/broadcasting';
 import { Throttler } from './utils/throttling';
+import { ConfigService } from '@nestjs/config';
+import { parsePositiveInteger } from '../../common/config/env.utils';
+
+const DEFAULT_PRESENCE_STALE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_PRESENCE_CLEANUP_INTERVAL_MS = 5 * 60 * 1000;
 
 @WebSocketGateway()
 export class StateGateway
@@ -49,12 +54,16 @@ export class StateGateway
   private readonly cursorHandler: CursorHandler;
   private readonly statusHandler: StatusHandler;
   private readonly interactionHandler: InteractionHandler;
+  private readonly presenceStaleAgeMs: number;
+  private readonly presenceCleanupIntervalMs: number;
+  private presenceCleanupTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly jwtVerificationService: JwtVerificationService,
     private readonly prisma: PrismaService,
     private readonly userSocketService: UserSocketService,
     private readonly wsNotificationService: WsNotificationService,
+    private readonly configService: ConfigService,
     @Inject(REDIS_CLIENT) private readonly redisClient: Redis | null,
     @Inject(REDIS_SUBSCRIBER_CLIENT)
     private readonly redisSubscriber: Redis | null,
@@ -78,6 +87,14 @@ export class StateGateway
       this.userSocketService,
       this.wsNotificationService,
     );
+    this.presenceStaleAgeMs = parsePositiveInteger(
+      this.configService.get<string>('PRESENCE_STALE_AGE_MS'),
+      DEFAULT_PRESENCE_STALE_AGE_MS,
+    );
+    this.presenceCleanupIntervalMs = parsePositiveInteger(
+      this.configService.get<string>('PRESENCE_CLEANUP_INTERVAL_MS'),
+      DEFAULT_PRESENCE_CLEANUP_INTERVAL_MS,
+    );
 
     // Setup Redis subscription for cross-instance communication
     if (this.redisSubscriber) {
@@ -85,6 +102,7 @@ export class StateGateway
         .subscribe(
           REDIS_CHANNEL.ACTIVE_DOLL_UPDATE,
           REDIS_CHANNEL.FRIEND_CACHE_UPDATE,
+          REDIS_CHANNEL.USER_PROFILE_CACHE_INVALIDATE,
           (err) => {
             if (err) {
               this.logger.error(`Failed to subscribe to Redis channels`, err);
@@ -104,6 +122,9 @@ export class StateGateway
         } else if (channel === REDIS_CHANNEL.FRIEND_CACHE_UPDATE) {
           // eslint-disable-next-line @typescript-eslint/no-floating-promises
           this.redisHandler.handleFriendCacheUpdateMessage(message);
+        } else if (channel === REDIS_CHANNEL.USER_PROFILE_CACHE_INVALIDATE) {
+          // eslint-disable-next-line @typescript-eslint/no-floating-promises
+          this.redisHandler.handleUserProfileCacheInvalidateMessage(message);
         }
       });
     }
@@ -112,6 +133,11 @@ export class StateGateway
   afterInit() {
     this.logger.log('Initialized');
     this.wsNotificationService.setIo(this.io);
+
+    this.presenceCleanupTimer = setInterval(() => {
+      void this.cleanupStalePresence();
+    }, this.presenceCleanupIntervalMs);
+    this.presenceCleanupTimer.unref();
   }
 
   handleConnection(client: AuthenticatedSocket) {
@@ -163,6 +189,19 @@ export class StateGateway
   onModuleDestroy() {
     if (this.redisSubscriber) {
       this.redisSubscriber.removeAllListeners('message');
+    }
+
+    if (this.presenceCleanupTimer) {
+      clearInterval(this.presenceCleanupTimer);
+      this.presenceCleanupTimer = null;
+    }
+  }
+
+  private async cleanupStalePresence(): Promise<void> {
+    const cutoffMs = Date.now() - this.presenceStaleAgeMs;
+    const removed = await this.userSocketService.cleanupStalePresence(cutoffMs);
+    if (removed > 0) {
+      this.logger.debug(`Cleaned up ${removed} stale presence entries`);
     }
   }
 }

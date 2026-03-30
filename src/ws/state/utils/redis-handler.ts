@@ -36,4 +36,20 @@ export class RedisHandler {
       this.logger.error('Error handling friend cache update message', error);
     }
   }
+
+  async handleUserProfileCacheInvalidateMessage(
+    message: string,
+  ): Promise<void> {
+    try {
+      const data = JSON.parse(message) as {
+        userId: string;
+      };
+      await this.wsNotificationService.clearSenderNameCache(data.userId);
+    } catch (error) {
+      this.logger.error(
+        'Error handling user profile cache invalidate message',
+        error,
+      );
+    }
+  }
 }

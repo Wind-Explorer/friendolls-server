@@ -50,6 +50,8 @@ export class InteractionHandler {
     client: AuthenticatedSocket,
     data: SendInteractionDto,
   ) {
+    await this.wsNotificationService.maybeTouchPresence(client);
+
     const user = client.data.user;
     const currentUserId = Validator.validateInitialized(client);
 

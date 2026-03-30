@@ -89,6 +89,8 @@ function validateEnvironment(
   validateOptionalPositiveNumber(config, 'CACHE_MAX_TTL_SECONDS');
   validateOptionalPositiveNumber(config, 'CACHE_METRICS_LOG_INTERVAL_MS');
   validateOptionalPositiveNumber(config, 'CACHE_TAG_MAX_ENTRIES');
+  validateOptionalPositiveNumber(config, 'PRESENCE_STALE_AGE_MS');
+  validateOptionalPositiveNumber(config, 'PRESENCE_CLEANUP_INTERVAL_MS');
 
   validateOptionalProvider(config, 'GOOGLE');
   validateOptionalProvider(config, 'DISCORD');

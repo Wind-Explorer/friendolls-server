@@ -41,6 +41,7 @@ export class CursorHandler {
     // Broadcast to online friends
     const friends = client.data.friends;
     if (friends) {
+      await this.broadcaster.touchPresence(client);
       const payload = {
         userId: currentUserId,
         position: data,

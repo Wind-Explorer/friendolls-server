@@ -104,6 +104,7 @@ export class UsersService {
     });
 
     this.eventEmitter.emit(UserEvents.SEARCH_INDEX_INVALIDATED, { userId: id });
+    this.eventEmitter.emit(UserEvents.PROFILE_UPDATED, { userId: id });
 
     this.logger.log(`User ${id} profile update requested`);
 
@@ -135,6 +136,7 @@ export class UsersService {
     });
 
     this.eventEmitter.emit(UserEvents.SEARCH_INDEX_INVALIDATED, { userId: id });
+    this.eventEmitter.emit(UserEvents.PROFILE_UPDATED, { userId: id });
 
     this.logger.log(`User ${id} deleted their account`);
   }
@@ -318,6 +320,7 @@ export class UsersService {
     this.eventEmitter.emit(UserEvents.SEARCH_INDEX_INVALIDATED, {
       userId: user.id,
     });
+    this.eventEmitter.emit(UserEvents.PROFILE_UPDATED, { userId: user.id });
 
     return user;
   }
@@ -330,6 +333,8 @@ export class UsersService {
       where: { id: userId },
       data: { passwordHash } as unknown as Prisma.UserUpdateInput,
     });
+
+    this.eventEmitter.emit(UserEvents.PROFILE_UPDATED, { userId });
   }
 
   async updateLastLogin(userId: string): Promise<void> {

@@ -292,6 +292,7 @@ export class AuthService {
       this.eventEmitter.emit(UserEvents.SEARCH_INDEX_INVALIDATED, {
         userId: user.id,
       });
+      this.eventEmitter.emit(UserEvents.PROFILE_UPDATED, { userId: user.id });
 
       return user;
     }
@@ -354,6 +355,7 @@ export class AuthService {
     this.eventEmitter.emit(UserEvents.SEARCH_INDEX_INVALIDATED, {
       userId: user.id,
     });
+    this.eventEmitter.emit(UserEvents.PROFILE_UPDATED, { userId: user.id });
 
     return user;
   }

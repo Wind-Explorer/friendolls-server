@@ -22,4 +22,5 @@ export const WS_EVENT = {
 export const REDIS_CHANNEL = {
   ACTIVE_DOLL_UPDATE: 'active-doll-update',
   FRIEND_CACHE_UPDATE: 'friend-cache-update',
+  USER_PROFILE_CACHE_INVALIDATE: 'user-profile-cache-invalidate',
 } as const;

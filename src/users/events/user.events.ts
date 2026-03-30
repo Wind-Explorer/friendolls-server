@@ -3,6 +3,7 @@ import { Doll } from '@prisma/client';
 export const UserEvents = {
   ACTIVE_DOLL_CHANGED: 'user.active-doll.changed',
   SEARCH_INDEX_INVALIDATED: 'user.search-index.invalidated',
+  PROFILE_UPDATED: 'user.profile.updated',
 } as const;
 
 export interface UserActiveDollChangedEvent {
@@ -13,4 +14,8 @@ export interface UserActiveDollChangedEvent {
 
 export interface UserSearchIndexInvalidatedEvent {
   userId?: string;
+}
+
+export interface UserProfileUpdatedEvent {
+  userId: string;
 }

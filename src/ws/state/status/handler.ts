@@ -47,6 +47,7 @@ export class StatusHandler {
     const friends = client.data.friends;
     if (friends) {
       try {
+        await this.broadcaster.touchPresence(client);
         const payload = {
           userId: currentUserId,
           status: data,
