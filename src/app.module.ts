@@ -5,6 +5,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { CacheModule, RedisThrottlerStorage } from './common/cache';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { DatabaseModule } from './database/database.module';
@@ -12,7 +13,10 @@ import { RedisModule } from './database/redis.module';
 import { WsModule } from './ws/ws.module';
 import { FriendsModule } from './friends/friends.module';
 import { DollsModule } from './dolls/dolls.module';
-import { parseRedisRequired } from './common/config/env.utils';
+import {
+  parsePositiveInteger,
+  parseRedisRequired,
+} from './common/config/env.utils';
 
 /**
  * Validates required environment variables.
@@ -117,15 +121,33 @@ function validateOptionalProvider(
       envFilePath: '.env',
       validate: validateEnvironment,
     }),
+    CacheModule,
     ThrottlerModule.forRootAsync({
-      imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: (config: ConfigService) => [
-        {
-          ttl: config.get('THROTTLE_TTL', 1000),
-          limit: config.get('THROTTLE_LIMIT', 5),
-        },
-      ],
+      imports: [ConfigModule, CacheModule],
+      inject: [ConfigService, RedisThrottlerStorage],
+      useFactory: (
+        config: ConfigService,
+        redisThrottlerStorage: RedisThrottlerStorage,
+      ) => {
+        const ttl = parsePositiveInteger(
+          config.get<string>('THROTTLE_TTL'),
+          1000,
+        );
+        const limit = parsePositiveInteger(
+          config.get<string>('THROTTLE_LIMIT'),
+          5,
+        );
+
+        return {
+          storage: redisThrottlerStorage,
+          throttlers: [
+            {
+              ttl,
+              limit,
+            },
+          ],
+        };
+      },
     }),
     EventEmitterModule.forRoot(),
     DatabaseModule,
