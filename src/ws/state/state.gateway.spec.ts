@@ -6,6 +6,7 @@ import { JwtVerificationService } from '../../auth/services/jwt-verification.ser
 import { PrismaService } from '../../database/prisma.service';
 import { UserSocketService } from './user-socket.service';
 import { WsNotificationService } from './ws-notification.service';
+import { ConfigService } from '@nestjs/config';
 import { SendInteractionDto } from '../dto/send-interaction.dto';
 import { WsException } from '@nestjs/websockets';
 
@@ -45,6 +46,7 @@ describe('StateGateway', () => {
   let mockUserSocketService: Partial<UserSocketService>;
   let mockRedisClient: { publish: jest.Mock };
   let mockRedisSubscriber: { subscribe: jest.Mock; on: jest.Mock };
+  let mockConfigService: { get: jest.Mock };
   let mockWsNotificationService: {
     setIo: jest.Mock;
     emitToUser: jest.Mock;
@@ -52,6 +54,8 @@ describe('StateGateway', () => {
     emitToSocket: jest.Mock;
     updateActiveDollCache: jest.Mock;
     publishActiveDollUpdate: jest.Mock;
+    clearSenderNameCache: jest.Mock;
+    maybeTouchPresence: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -92,9 +96,12 @@ describe('StateGateway', () => {
     mockUserSocketService = {
       setSocket: jest.fn().mockResolvedValue(undefined),
       removeSocket: jest.fn().mockResolvedValue(undefined),
+      removeSocketById: jest.fn().mockResolvedValue(undefined),
+      touchLastSeen: jest.fn().mockResolvedValue(undefined),
       getSocket: jest.fn().mockResolvedValue(null),
       isUserOnline: jest.fn().mockResolvedValue(false),
       getFriendsSockets: jest.fn().mockResolvedValue([]),
+      cleanupStalePresence: jest.fn().mockResolvedValue(0),
     };
 
     mockRedisClient = {
@@ -106,6 +113,10 @@ describe('StateGateway', () => {
       on: jest.fn(),
     };
 
+    mockConfigService = {
+      get: jest.fn().mockReturnValue(undefined),
+    };
+
     mockWsNotificationService = {
       setIo: jest.fn(),
       emitToUser: jest.fn(),
@@ -113,6 +124,8 @@ describe('StateGateway', () => {
       emitToSocket: jest.fn(),
       updateActiveDollCache: jest.fn(),
       publishActiveDollUpdate: jest.fn(),
+      clearSenderNameCache: jest.fn().mockResolvedValue(undefined),
+      maybeTouchPresence: jest.fn().mockResolvedValue(undefined),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -125,6 +138,7 @@ describe('StateGateway', () => {
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: UserSocketService, useValue: mockUserSocketService },
         { provide: WsNotificationService, useValue: mockWsNotificationService },
+        { provide: ConfigService, useValue: mockConfigService },
         { provide: 'REDIS_CLIENT', useValue: mockRedisClient },
         { provide: 'REDIS_SUBSCRIBER_CLIENT', useValue: mockRedisSubscriber },
       ],
@@ -161,8 +175,31 @@ describe('StateGateway', () => {
       expect(mockRedisSubscriber.subscribe).toHaveBeenCalledWith(
         'active-doll-update',
         'friend-cache-update',
+        'user-profile-cache-invalidate',
         expect.any(Function),
       );
+    });
+
+    it('should route user profile cache invalidation messages', async () => {
+      gateway.afterInit();
+
+      const onCalls = (mockRedisSubscriber.on as jest.Mock).mock.calls;
+      const messageHandler = onCalls.find(
+        (call) => call[0] === 'message',
+      )?.[1] as ((channel: string, message: string) => void) | undefined;
+
+      expect(messageHandler).toBeDefined();
+
+      messageHandler?.(
+        'user-profile-cache-invalidate',
+        JSON.stringify({ userId: 'user-1' }),
+      );
+
+      await Promise.resolve();
+
+      expect(
+        mockWsNotificationService.clearSenderNameCache,
+      ).toHaveBeenCalledWith('user-1');
     });
   });
 
@@ -259,6 +296,9 @@ describe('StateGateway', () => {
       expect(mockUserSocketService.setSocket).toHaveBeenCalledWith(
         'user-id',
         'client1',
+      );
+      expect(mockUserSocketService.touchLastSeen).toHaveBeenCalledWith(
+        'user-id',
       );
 
       // 2. Fetch State (DB)
@@ -359,6 +399,13 @@ describe('StateGateway', () => {
       expect(mockUserSocketService.getSocket).toHaveBeenCalledWith('user-id');
       expect(mockUserSocketService.removeSocket).toHaveBeenCalledWith(
         'user-id',
+        'client1',
+      );
+      expect(mockUserSocketService.touchLastSeen).toHaveBeenCalledWith(
+        'user-id',
+      );
+      expect(mockUserSocketService.removeSocketById).toHaveBeenCalledWith(
+        'client1',
       );
       expect(mockWsNotificationService.emitToSocket).toHaveBeenCalledWith(
         'friend-socket-id',

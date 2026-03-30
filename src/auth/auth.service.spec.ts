@@ -4,8 +4,11 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
 import { decode, sign } from 'jsonwebtoken';
+import { CacheService } from '../common/cache/cache.service';
+import { CacheTagsService } from '../common/cache/cache-tags.service';
 import { PrismaService } from '../database/prisma.service';
 import { AuthService } from './auth.service';
 import { sha256 } from './auth.utils';
@@ -58,6 +61,27 @@ describe('AuthService', () => {
     $transaction: jest.fn(),
   };
 
+  const mockEventEmitter = {
+    emit: jest.fn(),
+  };
+
+  const mockCacheService = {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue(true),
+    del: jest.fn().mockResolvedValue(true),
+    getNamespacedKey: jest
+      .fn()
+      .mockImplementation(
+        (namespace: string, key: string) => `friendolls:${namespace}:${key}`,
+      ),
+    recordError: jest.fn(),
+  };
+
+  const mockCacheTagsService = {
+    rememberKeyForTag: jest.fn().mockResolvedValue(undefined),
+    invalidateTag: jest.fn().mockResolvedValue(undefined),
+  };
+
   const socialProfile: SocialAuthProfile = {
     provider: 'google',
     providerSubject: 'google-user-123',
@@ -94,6 +118,9 @@ describe('AuthService', () => {
         AuthService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: EventEmitter2, useValue: mockEventEmitter },
+        { provide: CacheService, useValue: mockCacheService },
+        { provide: CacheTagsService, useValue: mockCacheTagsService },
       ],
     }).compile();
 
@@ -135,6 +162,9 @@ describe('AuthService', () => {
       const localService = new AuthService(
         mockPrismaService as unknown as PrismaService,
         mockConfigService as unknown as ConfigService,
+        mockEventEmitter as unknown as EventEmitter2,
+        mockCacheService as unknown as CacheService,
+        mockCacheTagsService as unknown as CacheTagsService,
       );
 
       expect(() =>

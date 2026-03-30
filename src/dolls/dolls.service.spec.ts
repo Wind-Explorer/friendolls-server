@@ -4,6 +4,9 @@ import { DollsService } from './dolls.service';
 import { PrismaService } from '../database/prisma.service';
 import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { Doll } from '@prisma/client';
+import { CacheService } from '../common/cache/cache.service';
+import { CacheTagsService } from '../common/cache/cache-tags.service';
+import { FriendsService } from '../friends/friends.service';
 
 describe('DollsService', () => {
   let service: DollsService;
@@ -31,9 +34,6 @@ describe('DollsService', () => {
       findFirst: jest.fn().mockResolvedValue(mockDoll),
       update: jest.fn().mockResolvedValue(mockDoll),
     },
-    friendship: {
-      findMany: jest.fn().mockResolvedValue([]),
-    },
     $transaction: jest.fn((callback) => {
       // eslint-disable-next-line @typescript-eslint/no-unsafe-return
       return callback(mockPrismaService);
@@ -47,6 +47,25 @@ describe('DollsService', () => {
     emit: jest.fn(),
   };
 
+  const mockCacheService = {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue(true),
+    getNamespacedKey: jest
+      .fn()
+      .mockImplementation(
+        (namespace: string, key: string) => `friendolls:${namespace}:${key}`,
+      ),
+    recordError: jest.fn(),
+  };
+
+  const mockCacheTagsService = {
+    rememberKeyForTag: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockFriendsService = {
+    areFriends: jest.fn().mockResolvedValue(false),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -58,6 +77,18 @@ describe('DollsService', () => {
         {
           provide: EventEmitter2,
           useValue: mockEventEmitter,
+        },
+        {
+          provide: CacheService,
+          useValue: mockCacheService,
+        },
+        {
+          provide: CacheTagsService,
+          useValue: mockCacheTagsService,
+        },
+        {
+          provide: FriendsService,
+          useValue: mockFriendsService,
         },
       ],
     }).compile();
@@ -112,10 +143,7 @@ describe('DollsService', () => {
       const ownerId = 'friend-1';
       const requestingUserId = 'user-1';
 
-      // Mock friendship
-      jest
-        .spyOn(prismaService.friendship, 'findMany')
-        .mockResolvedValueOnce([{ friendId: ownerId } as any]);
+      (mockFriendsService.areFriends as jest.Mock).mockResolvedValueOnce(true);
 
       await service.listByOwner(ownerId, requestingUserId);
 
@@ -134,10 +162,7 @@ describe('DollsService', () => {
       const ownerId = 'stranger-1';
       const requestingUserId = 'user-1';
 
-      // Mock empty friendship (default)
-      jest
-        .spyOn(prismaService.friendship, 'findMany')
-        .mockResolvedValueOnce([]);
+      (mockFriendsService.areFriends as jest.Mock).mockResolvedValueOnce(false);
 
       await expect(
         service.listByOwner(ownerId, requestingUserId),
@@ -163,7 +188,10 @@ describe('DollsService', () => {
     });
 
     it('should throw NotFoundException if doll not accessible', async () => {
-      jest.spyOn(prismaService.doll, 'findFirst').mockResolvedValueOnce(null);
+      jest
+        .spyOn(prismaService.doll, 'findFirst')
+        .mockResolvedValueOnce({ ...mockDoll, userId: 'user-2' });
+      (mockFriendsService.areFriends as jest.Mock).mockResolvedValueOnce(false);
 
       await expect(service.findOne('doll-1', 'user-1')).rejects.toThrow(
         NotFoundException,
@@ -179,7 +207,7 @@ describe('DollsService', () => {
       expect(prismaService.doll.update).toHaveBeenCalled();
     });
 
-    it('should throw ForbiddenException if not owner', async () => {
+    it('should throw NotFoundException if not owner and not a friend', async () => {
       jest
         .spyOn(prismaService.doll, 'findFirst')
         .mockResolvedValueOnce({ ...mockDoll, userId: 'user-2' });
@@ -187,7 +215,7 @@ describe('DollsService', () => {
       const updateDto = { name: 'Updated Doll' };
       await expect(
         service.update('doll-1', 'user-1', updateDto),
-      ).rejects.toThrow(ForbiddenException);
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -203,13 +231,13 @@ describe('DollsService', () => {
       });
     });
 
-    it('should throw ForbiddenException if not owner', async () => {
+    it('should throw NotFoundException if not owner and not a friend', async () => {
       jest
         .spyOn(prismaService.doll, 'findFirst')
         .mockResolvedValueOnce({ ...mockDoll, userId: 'user-2' });
 
       await expect(service.remove('doll-1', 'user-1')).rejects.toThrow(
-        ForbiddenException,
+        NotFoundException,
       );
     });
   });

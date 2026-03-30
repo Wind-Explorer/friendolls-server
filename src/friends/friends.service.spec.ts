@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { FriendsService } from './friends.service';
 import { PrismaService } from '../database/prisma.service';
+import { CacheService } from '../common/cache/cache.service';
+import { CacheTagsService } from '../common/cache/cache-tags.service';
 import {
   NotFoundException,
   BadRequestException,
@@ -17,6 +19,8 @@ enum FriendRequestStatus {
 describe('FriendsService', () => {
   let service: FriendsService;
   let eventEmitter: EventEmitter2;
+  let cacheService: CacheService;
+  let cacheTagsService: CacheTagsService;
 
   const mockUser1 = {
     id: 'user-1',
@@ -90,6 +94,21 @@ describe('FriendsService', () => {
     emit: jest.fn(),
   };
 
+  const mockCacheService = {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue(true),
+    getNamespacedKey: jest
+      .fn()
+      .mockImplementation(
+        (namespace: string, key: string) => `friendolls:${namespace}:${key}`,
+      ),
+    recordError: jest.fn(),
+  };
+
+  const mockCacheTagsService = {
+    rememberKeyForTag: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -102,11 +121,21 @@ describe('FriendsService', () => {
           provide: EventEmitter2,
           useValue: mockEventEmitter,
         },
+        {
+          provide: CacheService,
+          useValue: mockCacheService,
+        },
+        {
+          provide: CacheTagsService,
+          useValue: mockCacheTagsService,
+        },
       ],
     }).compile();
 
     service = module.get<FriendsService>(FriendsService);
     eventEmitter = module.get<EventEmitter2>(EventEmitter2);
+    cacheService = module.get<CacheService>(CacheService);
+    cacheTagsService = module.get<CacheTagsService>(CacheTagsService);
 
     jest.clearAllMocks();
   });
@@ -420,6 +449,8 @@ describe('FriendsService', () => {
           createdAt: 'desc',
         },
       });
+      expect(cacheService.set).toHaveBeenCalled();
+      expect(cacheTagsService.rememberKeyForTag).toHaveBeenCalled();
     });
   });
 
@@ -469,6 +500,12 @@ describe('FriendsService', () => {
       const result = await service.areFriends('user-1', 'user-2');
 
       expect(result).toBe(true);
+      expect(cacheService.set).toHaveBeenCalledWith(
+        expect.any(String),
+        '1',
+        expect.any(Number),
+      );
+      expect(cacheTagsService.rememberKeyForTag).toHaveBeenCalled();
     });
 
     it('should return false when users are not friends', async () => {
@@ -477,6 +514,11 @@ describe('FriendsService', () => {
       const result = await service.areFriends('user-1', 'user-2');
 
       expect(result).toBe(false);
+      expect(cacheService.set).toHaveBeenCalledWith(
+        expect.any(String),
+        '0',
+        expect.any(Number),
+      );
     });
   });
 });

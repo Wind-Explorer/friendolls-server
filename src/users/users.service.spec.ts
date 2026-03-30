@@ -5,9 +5,13 @@ import { NotFoundException, ForbiddenException } from '@nestjs/common';
 import { User } from '@prisma/client';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { CacheService } from '../common/cache/cache.service';
+import { CacheTagsService } from '../common/cache/cache-tags.service';
 
 describe('UsersService', () => {
   let service: UsersService;
+  let cacheService: CacheService;
+  let cacheTagsService: CacheTagsService;
 
   const mockUser: User & { passwordHash?: string | null } = {
     id: '550e8400-e29b-41d4-a716-446655440000',
@@ -39,6 +43,21 @@ describe('UsersService', () => {
     emit: jest.fn(),
   };
 
+  const mockCacheService = {
+    get: jest.fn().mockResolvedValue(null),
+    set: jest.fn().mockResolvedValue(true),
+    getNamespacedKey: jest
+      .fn()
+      .mockImplementation(
+        (namespace: string, key: string) => `friendolls:${namespace}:${key}`,
+      ),
+    recordError: jest.fn(),
+  };
+
+  const mockCacheTagsService = {
+    rememberKeyForTag: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -51,10 +70,20 @@ describe('UsersService', () => {
           provide: EventEmitter2,
           useValue: mockEventEmitter,
         },
+        {
+          provide: CacheService,
+          useValue: mockCacheService,
+        },
+        {
+          provide: CacheTagsService,
+          useValue: mockCacheTagsService,
+        },
       ],
     }).compile();
 
     service = module.get<UsersService>(UsersService);
+    cacheService = module.get<CacheService>(CacheService);
+    cacheTagsService = module.get<CacheTagsService>(CacheTagsService);
 
     jest.clearAllMocks();
   });
@@ -227,6 +256,8 @@ describe('UsersService', () => {
           username: 'asc',
         },
       });
+      expect(cacheService.set).toHaveBeenCalled();
+      expect(cacheTagsService.rememberKeyForTag).toHaveBeenCalled();
     });
 
     it('should exclude specified user from results', async () => {
