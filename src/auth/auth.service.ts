@@ -13,6 +13,7 @@ import {
   verify,
 } from 'jsonwebtoken';
 import { PrismaService } from '../database/prisma.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { SocialAuthProfile } from './types/social-auth-profile';
 import type {
   AuthTokens,
@@ -35,6 +36,7 @@ import {
   usernameFromEmail,
 } from './auth.utils';
 import type { SsoProvider } from './dto/sso-provider';
+import { UserEvents } from '../users/events/user.events';
 
 interface SsoStateClaims {
   provider: SsoProvider;
@@ -56,6 +58,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
+    private readonly eventEmitter: EventEmitter2,
   ) {
     this.jwtSecret = this.configService.get<string>('JWT_SECRET') || '';
     this.jwtIssuer =
@@ -254,6 +257,10 @@ export class AuthService {
         },
       });
 
+      this.eventEmitter.emit(UserEvents.SEARCH_INDEX_INVALIDATED, {
+        userId: user.id,
+      });
+
       return user;
     }
 
@@ -273,7 +280,7 @@ export class AuthService {
       );
     }
 
-    return this.prisma.$transaction(async (tx) => {
+    const user = await this.prisma.$transaction(async (tx) => {
       let user = await tx.user.findUnique({
         where: { email },
       });
@@ -311,6 +318,12 @@ export class AuthService {
 
       return user;
     });
+
+    this.eventEmitter.emit(UserEvents.SEARCH_INDEX_INVALIDATED, {
+      userId: user.id,
+    });
+
+    return user;
   }
 
   private async resolveUsername(

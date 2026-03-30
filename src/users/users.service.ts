@@ -10,6 +10,15 @@ import { User, Prisma } from '@prisma/client';
 import type { UpdateUserDto } from './dto/update-user.dto';
 import { UserEvents } from './events/user.events';
 import { normalizeEmail } from '../auth/auth.utils';
+import { CacheService } from '../common/cache/cache.service';
+import { CacheTagsService } from '../common/cache/cache-tags.service';
+import {
+  CACHE_NAMESPACE,
+  CACHE_TTL_SECONDS,
+  usersSearchUserTag,
+  usersSearchCacheKey,
+  USERS_SEARCH_GLOBAL_TAG,
+} from '../common/cache/cache-keys';
 
 export interface CreateLocalUserDto {
   email: string;
@@ -30,6 +39,8 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly cacheService: CacheService,
+    private readonly cacheTagsService: CacheTagsService,
   ) {}
 
   // Legacy Keycloak user creation removed in favor of local auth.
@@ -92,6 +103,8 @@ export class UsersService {
       data: updateData,
     });
 
+    this.eventEmitter.emit(UserEvents.SEARCH_INDEX_INVALIDATED, { userId: id });
+
     this.logger.log(`User ${id} profile update requested`);
 
     return updatedUser;
@@ -121,6 +134,8 @@ export class UsersService {
       where: { id },
     });
 
+    this.eventEmitter.emit(UserEvents.SEARCH_INDEX_INVALIDATED, { userId: id });
+
     this.logger.log(`User ${id} deleted their account`);
   }
 
@@ -128,6 +143,25 @@ export class UsersService {
     username?: string,
     excludeUserId?: string,
   ): Promise<User[]> {
+    const cacheKey = usersSearchCacheKey(username, excludeUserId);
+    const namespacedKey = this.cacheService.getNamespacedKey(
+      CACHE_NAMESPACE.USERS_SEARCH,
+      cacheKey,
+    );
+    const cached = await this.cacheService.get(namespacedKey);
+
+    if (cached) {
+      try {
+        return JSON.parse(cached) as User[];
+      } catch (error) {
+        this.cacheService.recordError(
+          'users search parse',
+          namespacedKey,
+          error,
+        );
+      }
+    }
+
     const where: Prisma.UserWhereInput = {};
 
     if (username) {
@@ -150,6 +184,24 @@ export class UsersService {
         username: 'asc',
       },
     });
+
+    await this.cacheService.set(
+      namespacedKey,
+      JSON.stringify(users),
+      CACHE_TTL_SECONDS.USERS_SEARCH,
+    );
+    await this.cacheTagsService.rememberKeyForTag(
+      CACHE_NAMESPACE.USERS_SEARCH,
+      USERS_SEARCH_GLOBAL_TAG,
+      cacheKey,
+    );
+    if (excludeUserId) {
+      await this.cacheTagsService.rememberKeyForTag(
+        CACHE_NAMESPACE.USERS_SEARCH,
+        usersSearchUserTag(excludeUserId),
+        cacheKey,
+      );
+    }
 
     return users;
   }
@@ -251,7 +303,7 @@ export class UsersService {
     const now = new Date();
     const roles: string[] = [];
 
-    return this.prisma.user.create({
+    const user = await this.prisma.user.create({
       data: {
         email: normalizeEmail(createDto.email),
         name: createDto.name,
@@ -262,6 +314,12 @@ export class UsersService {
         keycloakSub: null,
       } as unknown as Prisma.UserUncheckedCreateInput,
     });
+
+    this.eventEmitter.emit(UserEvents.SEARCH_INDEX_INVALIDATED, {
+      userId: user.id,
+    });
+
+    return user;
   }
 
   async updatePasswordHash(

@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { FriendsController } from './friends.controller';
+import { FriendsCacheInvalidationService } from './friends-cache-invalidation.service';
 import { FriendsService } from './friends.service';
 import { FriendsNotificationService } from './friends-notification.service';
 import { DatabaseModule } from '../database/database.module';
@@ -15,7 +16,11 @@ import { WsModule } from '../ws/ws.module';
     forwardRef(() => WsModule),
   ],
   controllers: [FriendsController],
-  providers: [FriendsService, FriendsNotificationService],
+  providers: [
+    FriendsService,
+    FriendsNotificationService,
+    FriendsCacheInvalidationService,
+  ],
   exports: [FriendsService],
 })
 export class FriendsModule {}

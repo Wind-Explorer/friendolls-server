@@ -1,5 +1,6 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { UsersService } from './users.service';
+import { UsersCacheInvalidationService } from './users-cache-invalidation.service';
 import { UsersController } from './users.controller';
 import { UsersNotificationService } from './users-notification.service';
 import { AuthModule } from '../auth/auth.module';
@@ -16,7 +17,11 @@ import { WsModule } from '../ws/ws.module';
  */
 @Module({
   imports: [forwardRef(() => AuthModule), forwardRef(() => WsModule)],
-  providers: [UsersService, UsersNotificationService],
+  providers: [
+    UsersService,
+    UsersNotificationService,
+    UsersCacheInvalidationService,
+  ],
   controllers: [UsersController],
   exports: [UsersService],
 })

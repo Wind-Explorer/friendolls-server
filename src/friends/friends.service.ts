@@ -15,6 +15,15 @@ import {
   FriendRequestDeniedEvent,
   UnfriendedEvent,
 } from './events/friend.events';
+import { CacheService } from '../common/cache/cache.service';
+import { CacheTagsService } from '../common/cache/cache-tags.service';
+import {
+  CACHE_NAMESPACE,
+  CACHE_TTL_SECONDS,
+  friendsListCacheKey,
+  friendsListDependsOnUserTag,
+  friendsListOwnerTag,
+} from '../common/cache/cache-keys';
 
 export type FriendRequestWithRelations = FriendRequest & {
   sender: User;
@@ -28,6 +37,8 @@ export class FriendsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly cacheService: CacheService,
+    private readonly cacheTagsService: CacheTagsService,
   ) {}
 
   async sendFriendRequest(
@@ -272,7 +283,28 @@ export class FriendsService {
   }
 
   async getFriends(userId: string) {
-    return this.prisma.friendship.findMany({
+    const cacheKey = friendsListCacheKey(userId);
+    const namespacedKey = this.cacheService.getNamespacedKey(
+      CACHE_NAMESPACE.FRIENDS_LIST,
+      cacheKey,
+    );
+    const cached = await this.cacheService.get(namespacedKey);
+
+    if (cached) {
+      try {
+        return JSON.parse(cached) as Awaited<
+          ReturnType<PrismaService['friendship']['findMany']>
+        >;
+      } catch (error) {
+        this.cacheService.recordError(
+          'friends list parse',
+          namespacedKey,
+          error,
+        );
+      }
+    }
+
+    const friendships = await this.prisma.friendship.findMany({
       where: { userId },
       include: {
         friend: {
@@ -285,6 +317,29 @@ export class FriendsService {
         createdAt: 'desc',
       },
     });
+
+    await this.cacheService.set(
+      namespacedKey,
+      JSON.stringify(friendships),
+      CACHE_TTL_SECONDS.FRIENDS_LIST,
+    );
+
+    const dependentFriendTags = friendships.map((friendship) =>
+      friendsListDependsOnUserTag(friendship.friendId),
+    );
+    const tags = [friendsListOwnerTag(userId), ...dependentFriendTags];
+
+    await Promise.all(
+      tags.map((tag) =>
+        this.cacheTagsService.rememberKeyForTag(
+          CACHE_NAMESPACE.FRIENDS_LIST,
+          tag,
+          cacheKey,
+        ),
+      ),
+    );
+
+    return friendships;
   }
 
   async unfriend(userId: string, friendId: string): Promise<void> {

@@ -15,6 +15,15 @@ import {
   DollUpdatedEvent,
   DollDeletedEvent,
 } from './events/doll.events';
+import { CacheService } from '../common/cache/cache.service';
+import { CacheTagsService } from '../common/cache/cache-tags.service';
+import {
+  CACHE_NAMESPACE,
+  CACHE_TTL_SECONDS,
+  dollsListCacheKey,
+  dollsListOwnerTag,
+  dollsListViewerTag,
+} from '../common/cache/cache-keys';
 
 @Injectable()
 export class DollsService {
@@ -23,6 +32,8 @@ export class DollsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly cacheService: CacheService,
+    private readonly cacheTagsService: CacheTagsService,
   ) {}
 
   async getFriendIds(userId: string): Promise<string[]> {
@@ -74,6 +85,48 @@ export class DollsService {
   }
 
   async listByOwner(
+    ownerId: string,
+    requestingUserId: string,
+  ): Promise<Doll[]> {
+    const cacheKey = dollsListCacheKey(ownerId, requestingUserId);
+    const namespacedKey = this.cacheService.getNamespacedKey(
+      CACHE_NAMESPACE.DOLLS_LIST,
+      cacheKey,
+    );
+    const cached = await this.cacheService.get(namespacedKey);
+
+    if (cached) {
+      try {
+        return JSON.parse(cached) as Doll[];
+      } catch (error) {
+        this.cacheService.recordError('dolls list parse', namespacedKey, error);
+      }
+    }
+
+    const dolls = await this.listByOwnerFromDatabase(ownerId, requestingUserId);
+
+    await this.cacheService.set(
+      namespacedKey,
+      JSON.stringify(dolls),
+      CACHE_TTL_SECONDS.DOLLS_LIST,
+    );
+    await Promise.all([
+      this.cacheTagsService.rememberKeyForTag(
+        CACHE_NAMESPACE.DOLLS_LIST,
+        dollsListOwnerTag(ownerId),
+        cacheKey,
+      ),
+      this.cacheTagsService.rememberKeyForTag(
+        CACHE_NAMESPACE.DOLLS_LIST,
+        dollsListViewerTag(requestingUserId),
+        cacheKey,
+      ),
+    ]);
+
+    return dolls;
+  }
+
+  private async listByOwnerFromDatabase(
     ownerId: string,
     requestingUserId: string,
   ): Promise<Doll[]> {
